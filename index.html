@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Account Lookup — NL to Salesforce (Concept Demo)</title>
+<style>
+  :root {
+    --bg: #F5F7F6;
+    --surface: #FFFFFF;
+    --surface-2: #EAF0EE;
+    --border: #D7E0DD;
+    --ink-primary: #12201D;
+    --ink-secondary: #47605A;
+    --ink-muted: #7C948D;
+    --accent: #0E7C6B;
+    --accent-strong: #0A5C4F;
+    --accent-soft: #E3F3EE;
+    --accent-ink: #08463C;
+    --status-good-ink: #2E7D46;
+    --status-good-bg: #E6F4EA;
+    --status-warn-ink: #93630C;
+    --status-warn-bg: #FBF0DA;
+    --status-crit-ink: #B23A2E;
+    --status-crit-bg: #FBE7E3;
+    --shadow: 0 1px 2px rgba(18, 32, 29, 0.06), 0 6px 20px -8px rgba(18, 32, 29, 0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0E1613;
+      --surface: #16201C;
+      --surface-2: #1D2924;
+      --border: #2B3833;
+      --ink-primary: #EDF3F0;
+      --ink-secondary: #B7C4BE;
+      --ink-muted: #7E8F89;
+      --accent: #3FBFA8;
+      --accent-strong: #6BD8C4;
+      --accent-soft: #16332C;
+      --accent-ink: #7FE2CC;
+      --status-good-ink: #6FDB93;
+      --status-good-bg: #16321F;
+      --status-warn-ink: #F5C15C;
+      --status-warn-bg: #362B12;
+      --status-crit-ink: #F0776B;
+      --status-crit-bg: #3A1D18;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 24px -8px rgba(0, 0, 0, 0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1613;
+    --surface: #16201C;
+    --surface-2: #1D2924;
+    --border: #2B3833;
+    --ink-primary: #EDF3F0;
+    --ink-secondary: #B7C4BE;
+    --ink-muted: #7E8F89;
+    --accent: #3FBFA8;
+    --accent-strong: #6BD8C4;
+    --accent-soft: #16332C;
+    --accent-ink: #7FE2CC;
+    --status-good-ink: #6FDB93;
+    --status-good-bg: #16321F;
+    --status-warn-ink: #F5C15C;
+    --status-warn-bg: #362B12;
+    --status-crit-ink: #F0776B;
+    --status-crit-bg: #3A1D18;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 24px -8px rgba(0, 0, 0, 0.5);
+  }
+  :root[data-theme="light"] {
+    --bg: #F5F7F6;
+    --surface: #FFFFFF;
+    --surface-2: #EAF0EE;
+    --border: #D7E0DD;
+    --ink-primary: #12201D;
+    --ink-secondary: #47605A;
+    --ink-muted: #7C948D;
+    --accent: #0E7C6B;
+    --accent-strong: #0A5C4F;
+    --accent-soft: #E3F3EE;
+    --accent-ink: #08463C;
+    --status-good-ink: #2E7D46;
+    --status-good-bg: #E6F4EA;
+    --status-warn-ink: #93630C;
+    --status-warn-bg: #FBF0DA;
+    --status-crit-ink: #B23A2E;
+    --status-crit-bg: #FBE7E3;
+    --shadow: 0 1px 2px rgba(18, 32, 29, 0.06), 0 6px 20px -8px rgba(18, 32, 29, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink-primary);
+    font-family: -apple-system, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .data-font {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .page {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  header.top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+  }
+
+  .brand h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+
+  .brand p {
+    margin: 0;
+    color: var(--ink-secondary);
+    font-size: 14px;
+    max-width: 46ch;
+  }
+
+  .demo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  .demo-badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .console {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: var(--shadow);
+    margin-bottom: 28px;
+  }
+
+  .console-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin: 0 0 12px;
+  }
+
+  form.query-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  .query-input-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .query-input-wrap svg {
+    position: absolute;
+    left: 14px;
+    color: var(--ink-muted);
+    pointer-events: none;
+  }
+
+  #query {
+    width: 100%;
+    padding: 13px 14px 13px 40px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--ink-primary);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
+    font-size: 14.5px;
+  }
+
+  #query:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    background: var(--surface);
+  }
+
+  button.ask-btn {
+    padding: 0 22px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    font-size: 14.5px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+
+  button.ask-btn:hover { background: var(--accent-strong); }
+  button.ask-btn:focus-visible { outline: 2px solid var(--ink-primary); outline-offset: 2px; }
+
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .example-chip {
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--ink-secondary);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+
+  .example-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .parsed-row {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border);
+    display: none;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .parsed-row.visible { display: flex; }
+
+  .parsed-label {
+    font-size: 12px;
+    color: var(--ink-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .filter-chip {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 5px 11px;
+    border-radius: 7px;
+  }
+
+  .filter-chip.empty {
+    background: var(--surface-2);
+    color: var(--ink-muted);
+    font-weight: 500;
+  }
+
+  .thinking {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin-top: 14px;
+  }
+
+  .thinking.visible { display: flex; }
+
+  .thinking .spinner {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    animation: spin 0.7s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .thinking .spinner { animation: none; }
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+
+  .stat-tile .label {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin: 0 0 8px;
+  }
+
+  .stat-tile .value {
+    font-size: 26px;
+    font-weight: 700;
+    font-family: ui-monospace, "SF Mono", Consolas, Menlo, monospace;
+    letter-spacing: -0.02em;
+  }
+
+  .stat-tile .sub {
+    font-size: 12px;
+    color: var(--ink-secondary);
+    margin-top: 4px;
+  }
+
+  .results-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .results-head h2 {
+    font-size: 14.5px;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .results-head .summary-line {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    margin-top: 2px;
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 720px;
+  }
+
+  thead th {
+    text-align: left;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    padding: 10px 20px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  th.num, td.num { text-align: right; }
+
+  tbody td {
+    padding: 13px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+    vertical-align: middle;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+
+  .acct-name { font-weight: 600; }
+  .acct-industry { color: var(--ink-secondary); font-size: 12.5px; }
+
+  .arr, .days { font-family: ui-monospace, "SF Mono", Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .touched-date { color: var(--ink-muted); font-size: 12px; display: block; margin-top: 1px; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+  .pill.good { background: var(--status-good-bg); color: var(--status-good-ink); }
+  .pill.good .dot { background: var(--status-good-ink); }
+  .pill.warn { background: var(--status-warn-bg); color: var(--status-warn-ink); }
+  .pill.warn .dot { background: var(--status-warn-ink); }
+  .pill.crit { background: var(--status-crit-bg); color: var(--status-crit-ink); }
+  .pill.crit .dot { background: var(--status-crit-ink); }
+
+  .empty-state {
+    padding: 48px 20px;
+    text-align: center;
+    color: var(--ink-secondary);
+  }
+
+  .empty-state .big { font-size: 15px; font-weight: 600; color: var(--ink-primary); margin-bottom: 6px; }
+
+  footer.note {
+    margin-top: 24px;
+    font-size: 12px;
+    color: var(--ink-muted);
+    text-align: center;
+  }
+
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    form.query-row { flex-direction: column; }
+    button.ask-btn { justify-content: center; padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="top">
+    <div class="brand">
+      <h1>Account Lookup</h1>
+      <p>Ask about your accounts in plain English — a preview of what a Claude ↔ Salesforce connector could surface.</p>
+    </div>
+    <span class="demo-badge"><span class="dot"></span>Concept demo · sample data</span>
+  </header>
+
+  <div class="console">
+    <p class="console-label">Ask about your accounts</p>
+    <form class="query-row" id="queryForm">
+      <div class="query-input-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="query" class="data-font" placeholder="show food accounts untouched in 60 days" autocomplete="off" />
+      </div>
+      <button type="submit" class="ask-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        Ask
+      </button>
+    </form>
+
+    <div class="examples" id="examples">
+      <button type="button" class="example-chip" data-q="show food accounts untouched in 60 days">show food accounts untouched in 60 days</button>
+      <button type="button" class="example-chip" data-q="which accounts have no activity in 90+ days">which accounts have no activity in 90+ days</button>
+      <button type="button" class="example-chip" data-q="at-risk healthcare accounts owned by Priya">at-risk healthcare accounts owned by Priya</button>
+      <button type="button" class="example-chip" data-q="top accounts by ARR with no recent touch">top accounts by ARR with no recent touch</button>
+    </div>
+
+    <div class="thinking" id="thinking">
+      <span class="spinner"></span>
+      <span>Interpreting query and matching against Salesforce records…</span>
+    </div>
+
+    <div class="parsed-row" id="parsedRow">
+      <span class="parsed-label">Understood as</span>
+      <span id="parsedChips"></span>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="results-card">
+    <div class="results-head">
+      <div>
+        <h2>Matching accounts</h2>
+        <div class="summary-line" id="summaryLine">Showing all sample accounts.</div>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Industry</th>
+            <th>Owner</th>
+            <th class="num">ARR</th>
+            <th>Last touched</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="emptyState" style="display:none;">
+      <div class="big">No matching accounts</div>
+      <div>Try a different industry, owner, or time frame.</div>
+    </div>
+  </div>
+
+  <footer class="note">Sample accounts and figures are placeholders for demonstration only — no live Salesforce connection.</footer>
+</div>
+
+<script>
+  const ACCOUNTS = [
+    { name: "Harborview Foods", industry: "Food & Beverage", owner: "Priya Anand", arr: 184000, days: 74, date: "May 1, 2026" },
+    { name: "Golden Wheat Distributors", industry: "Food & Beverage", owner: "Marcus Lee", arr: 96000, days: 61, date: "May 14, 2026" },
+    { name: "Coastal Creamery Co.", industry: "Food & Beverage", owner: "Priya Anand", arr: 42000, days: 18, date: "Jun 25, 2026" },
+    { name: "Blue Kettle Snacks", industry: "Food & Beverage", owner: "Devon Ruiz", arr: 71000, days: 92, date: "Apr 13, 2026" },
+    { name: "Fernbrook Orchards", industry: "Food & Beverage", owner: "Marcus Lee", arr: 55000, days: 45, date: "May 30, 2026" },
+    { name: "Northgate Robotics", industry: "Technology", owner: "Devon Ruiz", arr: 310000, days: 12, date: "Jul 1, 2026" },
+    { name: "Vantage Cloud Systems", industry: "Technology", owner: "Priya Anand", arr: 275000, days: 88, date: "Apr 17, 2026" },
+    { name: "Ledger & Loop Analytics", industry: "Technology", owner: "Marcus Lee", arr: 128000, days: 6, date: "Jul 7, 2026" },
+    { name: "Summit Care Partners", industry: "Healthcare", owner: "Priya Anand", arr: 220000, days: 67, date: "May 8, 2026" },
+    { name: "Willowmed Diagnostics", industry: "Healthcare", owner: "Priya Anand", arr: 145000, days: 34, date: "Jun 10, 2026" },
+    { name: "Riverside Health Group", industry: "Healthcare", owner: "Devon Ruiz", arr: 198000, days: 103, date: "Apr 2, 2026" },
+    { name: "Palmerston Retail Co.", industry: "Retail", owner: "Marcus Lee", arr: 87000, days: 29, date: "Jun 15, 2026" },
+    { name: "Brightline Outfitters", industry: "Retail", owner: "Devon Ruiz", arr: 63000, days: 58, date: "May 17, 2026" },
+    { name: "Meridian Capital Trust", industry: "Finance", owner: "Marcus Lee", arr: 402000, days: 21, date: "Jun 23, 2026" },
+    { name: "Anchor & Reed Financial", industry: "Finance", owner: "Priya Anand", arr: 356000, days: 81, date: "Apr 24, 2026" },
+    { name: "Ironclad Manufacturing", industry: "Manufacturing", owner: "Devon Ruiz", arr: 132000, days: 51, date: "May 24, 2026" },
+    { name: "Cascade Freight Logistics", industry: "Logistics", owner: "Marcus Lee", arr: 118000, days: 66, date: "May 9, 2026" },
+  ];
+
+  const INDUSTRY_KEYWORDS = {
+    "Food & Beverage": ["food", "beverage", "grocery", "snack"],
+    "Technology": ["tech", "technology", "software", "saas", "cloud"],
+    "Healthcare": ["health", "healthcare", "medical", "care"],
+    "Retail": ["retail", "store", "outfitter"],
+    "Finance": ["finance", "financial", "bank", "capital"],
+    "Manufacturing": ["manufacturing", "industrial", "factory"],
+    "Logistics": ["logistics", "shipping", "freight"],
+  };
+
+  const OWNERS = ["Priya Anand", "Marcus Lee", "Devon Ruiz"];
+
+  function statusFor(days) {
+    if (days <= 30) return { key: "good", label: "Active" };
+    if (days <= 60) return { key: "warn", label: "At Risk" };
+    return { key: "crit", label: "Dormant" };
+  }
+
+  function formatArr(n) {
+    return "$" + (n / 1000).toFixed(0) + "K";
+  }
+
+  function parseQuery(q) {
+    const lower = q.toLowerCase();
+    const filters = { industry: null, minDays: null, owner: null, status: null, sortByArr: false };
+
+    for (const [industry, kws] of Object.entries(INDUSTRY_KEYWORDS)) {
+      if (kws.some((kw) => lower.includes(kw))) { filters.industry = industry; break; }
+    }
+
+    const dayMatch = lower.match(/(\d+)\s*\+?\s*day/);
+    if (dayMatch) filters.minDays = parseInt(dayMatch[1], 10);
+
+    for (const owner of OWNERS) {
+      const first = owner.split(" ")[0].toLowerCase();
+      if (lower.includes(first)) { filters.owner = owner; break; }
+    }
+
+    if (lower.includes("at-risk") || lower.includes("at risk")) filters.status = "warn";
+    else if (lower.includes("dormant") || lower.includes("untouched") || lower.includes("no activity") || lower.includes("no recent touch")) {
+      filters.status = filters.status || null;
+      if (filters.minDays === null) filters.minDays = 60;
+    } else if (lower.includes("active")) filters.status = "good";
+
+    if (lower.includes("top") || lower.includes("by arr") || lower.includes("highest")) filters.sortByArr = true;
+
+    return filters;
+  }
+
+  function applyFilters(filters) {
+    let rows = ACCOUNTS.filter((a) => {
+      if (filters.industry && a.industry !== filters.industry) return false;
+      if (filters.minDays !== null && a.days < filters.minDays) return false;
+      if (filters.owner && a.owner !== filters.owner) return false;
+      if (filters.status && statusFor(a.days).key !== filters.status) return false;
+      return true;
+    });
+    if (filters.sortByArr) rows = rows.slice().sort((a, b) => b.arr - a.arr);
+    else rows = rows.slice().sort((a, b) => b.days - a.days);
+    return rows;
+  }
+
+  function renderChips(filters, hasAny) {
+    const chips = document.getElementById("parsedChips");
+    chips.innerHTML = "";
+    if (!hasAny) {
+      chips.innerHTML = '<span class="filter-chip empty">No filters recognized — showing everything</span>';
+      return;
+    }
+    const parts = [];
+    if (filters.industry) parts.push(`Industry: ${filters.industry}`);
+    if (filters.minDays !== null) parts.push(`Last touched ≥ ${filters.minDays} days`);
+    if (filters.owner) parts.push(`Owner: ${filters.owner}`);
+    if (filters.status) parts.push(`Status: ${filters.status === "warn" ? "At Risk" : filters.status === "good" ? "Active" : "Dormant"}`);
+    if (filters.sortByArr) parts.push("Sorted by ARR");
+    chips.innerHTML = parts.map((p) => `<span class="filter-chip">${p}</span>`).join(" ");
+  }
+
+  function renderStats(rows) {
+    const stats = document.getElementById("stats");
+    const total = rows.length;
+    const avgDays = total ? Math.round(rows.reduce((s, r) => s + r.days, 0) / total) : 0;
+    const atRisk = rows.filter((r) => statusFor(r.days).key !== "good").length;
+    const totalArr = rows.reduce((s, r) => s + r.arr, 0);
+    stats.innerHTML = `
+      <div class="stat-tile"><p class="label">Matched accounts</p><div class="value">${total}</div><div class="sub">of ${ACCOUNTS.length} sample accounts</div></div>
+      <div class="stat-tile"><p class="label">Avg. days since touch</p><div class="value">${avgDays}</div><div class="sub">across matched accounts</div></div>
+      <div class="stat-tile"><p class="label">At risk or dormant</p><div class="value">${atRisk}</div><div class="sub">${total ? Math.round((atRisk / total) * 100) : 0}% of matches</div></div>
+      <div class="stat-tile"><p class="label">Combined ARR</p><div class="value">${formatArr(totalArr)}</div><div class="sub">across matched accounts</div></div>
+    `;
+  }
+
+  function renderTable(rows) {
+    const body = document.getElementById("resultsBody");
+    const empty = document.getElementById("emptyState");
+    if (!rows.length) {
+      body.innerHTML = "";
+      empty.style.display = "block";
+      return;
+    }
+    empty.style.display = "none";
+    body.innerHTML = rows.map((r) => {
+      const s = statusFor(r.days);
+      return `
+        <tr>
+          <td class="acct-name">${r.name}</td>
+          <td class="acct-industry">${r.industry}</td>
+          <td>${r.owner}</td>
+          <td class="num arr">${formatArr(r.arr)}</td>
+          <td class="days">${r.days}d ago<span class="touched-date">${r.date}</span></td>
+          <td><span class="pill ${s.key}"><span class="dot"></span>${s.label}</span></td>
+        </tr>`;
+    }).join("");
+  }
+
+  function runQuery(q) {
+    const thinking = document.getElementById("thinking");
+    const parsedRow = document.getElementById("parsedRow");
+    const summaryLine = document.getElementById("summaryLine");
+
+    thinking.classList.add("visible");
+    parsedRow.classList.remove("visible");
+
+    setTimeout(() => {
+      const filters = parseQuery(q);
+      const hasAny = !!(filters.industry || filters.minDays !== null || filters.owner || filters.status || filters.sortByArr);
+      const rows = q.trim() ? applyFilters(filters) : ACCOUNTS.slice().sort((a, b) => b.days - a.days);
+
+      thinking.classList.remove("visible");
+      parsedRow.classList.add("visible");
+      renderChips(filters, q.trim() ? hasAny : false);
+      renderStats(rows);
+      renderTable(rows);
+
+      summaryLine.textContent = q.trim()
+        ? `Found ${rows.length} account${rows.length === 1 ? "" : "s"} matching "${q.trim()}".`
+        : "Showing all sample accounts.";
+    }, 550);
+  }
+
+  document.getElementById("queryForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    runQuery(document.getElementById("query").value);
+  });
+
+  document.getElementById("examples").addEventListener("click", (e) => {
+    const btn = e.target.closest(".example-chip");
+    if (!btn) return;
+    document.getElementById("query").value = btn.dataset.q;
+    runQuery(btn.dataset.q);
+  });
+
+  renderStats(ACCOUNTS);
+  renderTable(ACCOUNTS.slice().sort((a, b) => b.days - a.days));
+</script>
+</body>
+</html>
