@@ -162,7 +162,13 @@ def parse_last_modified_date(raw):
 def _is_pro_noise(record):
     subject = record.get("subject") or ""
     related_to = record.get("related_to") or ""
-    return bool(PRO_NOISE_PATTERN.search(subject) or PRO_NOISE_PATTERN.search(related_to))
+    if PRO_NOISE_PATTERN.search(subject) or PRO_NOISE_PATTERN.search(related_to):
+        return True
+    # "PRO.<account>.<year>.R"-style codes are the POLITICO Pro subscription/
+    # account-management record itself (renewals, walkthroughs), not an
+    # AgencyIQ sales opportunity — noise even when the subject doesn't
+    # literally say "POLITICO Pro".
+    return related_to.upper().startswith("PRO.")
 
 
 def filter_and_sort_activities(records):
