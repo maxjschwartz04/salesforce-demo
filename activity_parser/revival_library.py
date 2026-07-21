@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import json
+import re
 import statistics
 import sys
 
@@ -25,6 +26,12 @@ from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_ac
 from staleness import MIN_ENGAGEMENT_DAYS, STALLED_MULTIPLIER
 
 EXCERPT_LENGTH = 220
+
+# Billing/AR emails ("First Reminder: Politico Overdue Invoice SIN048316")
+# get logged as activities and can land right after a long gap purely by
+# accounting coincidence — that's not a rep re-engaging, so it shouldn't
+# qualify as a revival example.
+BILLING_NOISE_PATTERN = re.compile(r"\binvoic\w*\b|\boverdue\b", re.IGNORECASE)
 
 
 def _excerpt(record):
@@ -55,6 +62,8 @@ def find_revival_moments(records, multiplier=STALLED_MULTIPLIER, min_engagement_
         email (has nested To/Subject/Body), not an internal task note like
         "talk to Lily // reapproach" or a bare call log — those aren't
         something we can hand back as "the email that worked"
+      - that email isn't a billing/invoice notice — those get logged as
+        activities too but aren't a rep's re-engagement tactic
       - there's a later activity to measure a response against — a
         re-engagement email that got no reply at all isn't evidence of
         anything working, so it's excluded rather than reported with a
@@ -97,6 +106,9 @@ def find_revival_moments(records, multiplier=STALLED_MULTIPLIER, min_engagement_
         comments = revival_record.get("comments")
         if not comments or not comments.get("email"):
             continue  # silence was broken by a task/call/note, not an email we can extract
+
+        if BILLING_NOISE_PATTERN.search(revival_record.get("subject") or ""):
+            continue  # silence was broken by an invoice/AR notice, not a sales re-engagement
 
         if revival_index + 1 >= len(dated):
             continue  # re-engagement got no follow-up at all — not a proven revival
