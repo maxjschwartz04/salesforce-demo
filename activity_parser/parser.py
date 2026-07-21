@@ -44,9 +44,10 @@ EMAIL_FIELD_PATTERNS = {
 }
 EMAIL_BODY_PATTERN = re.compile(r"^Body:[ \t]*\n?(.*)\Z", re.MULTILINE | re.DOTALL)
 
-# Matches "Pro" as a standalone word (case-insensitive) so it catches "POLITICO
-# Pro" and "Pro Analysis" without also matching "Project", "Process", etc.
-PRO_NOISE_PATTERN = re.compile(r"\bpro\b", re.IGNORECASE)
+# Matches the specific phrase "POLITICO Pro" (case-insensitive, tolerant of
+# extra whitespace) rather than the bare word "Pro" — a prospect company or
+# contact with "Pro" in its name should never get swept up as noise.
+PRO_NOISE_PATTERN = re.compile(r"\bpolitico\s+pro\b", re.IGNORECASE)
 
 
 def extract_html_from_mhtml(path):
@@ -145,7 +146,11 @@ def parse_activities(html):
     return records
 
 
-def _parse_last_modified_date(raw):
+def parse_last_modified_date(raw):
+    """Parse a record's raw 'last_modified_date' string into a datetime, or
+    None if it's missing/unparseable. Public so downstream tools (e.g. the
+    staleness checker) can sort/diff activities without re-deriving the
+    export's datetime format."""
     if not raw:
         return None
     try:
@@ -165,7 +170,7 @@ def filter_and_sort_activities(records):
     aren't sales engagement) and return the rest sorted oldest -> newest by
     Last Modified Date. Records with an unparseable/missing date sort first."""
     sales_records = [r for r in records if not _is_pro_noise(r)]
-    sales_records.sort(key=lambda r: _parse_last_modified_date(r.get("last_modified_date")) or datetime.min)
+    sales_records.sort(key=lambda r: parse_last_modified_date(r.get("last_modified_date")) or datetime.min)
     return sales_records
 
 
