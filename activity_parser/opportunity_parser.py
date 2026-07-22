@@ -98,9 +98,12 @@ def _find_header(rows):
 
 def parse_opportunities_report(path):
     """Returns a flat list of {account_name, opportunity_name, owner, stage,
-    close_date, created_date, type, next_step} dicts, one per opportunity
-    row. next_step is the rep's own free-text plan for that opportunity —
-    real human judgment already in the data, not something we generate."""
+    close_date, created_date, type, next_step, amount, expected_revenue}
+    dicts, one per opportunity row. next_step is the rep's own free-text
+    plan for that opportunity — real human judgment already in the data,
+    not something we generate. amount/expected_revenue are deal-specific
+    dollar figures (NOT the same thing as an Account's firmographic annual
+    revenue, which lives on a different object and isn't pulled here)."""
     wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb[wb.sheetnames[0]]
     rows = list(ws.iter_rows(values_only=True))
@@ -128,6 +131,8 @@ def parse_opportunities_report(path):
                 "created_date": get(row, "Created Date"),
                 "type": get(row, "Type"),
                 "next_step": get(row, "Next Step") or None,
+                "amount": get(row, "Amount"),
+                "expected_revenue": get(row, "Expected Revenue"),
             }
         )
 
@@ -143,7 +148,11 @@ def build_account_status(records):
 
     open_next_steps is the rep's own free-text plan for each currently-open
     opportunity on the account (empty list if there isn't one, or the
-    account has none open) — surfaced as-is, not summarized or rewritten."""
+    account has none open) — surfaced as-is, not summarized or rewritten.
+
+    open_amount is the dollar Amount of the open opportunity (None if there
+    isn't one, or the export didn't have an Amount for it) — deal-specific,
+    not the same thing as an Account's firmographic annual revenue."""
     by_account = {}
     for r in records:
         by_account.setdefault(r["account_name"], []).append(r)
@@ -152,12 +161,14 @@ def build_account_status(records):
     for account, opps in by_account.items():
         stages = [o["stage"] for o in opps if o["stage"]]
         open_opps = [o for o in opps if o["stage"] and o["stage"] not in CLOSED_STAGES]
+        open_amount = next((o["amount"] for o in open_opps if o.get("amount")), None)
         status[account] = {
             "has_open_opportunity": any(s not in CLOSED_STAGES for s in stages),
             "has_closed_won": any(s == "Closed Won" for s in stages),
             "stages": stages,
             "opportunity_count": len(opps),
             "open_next_steps": [o["next_step"] for o in open_opps if o["next_step"]],
+            "open_amount": open_amount,
         }
     return status
 

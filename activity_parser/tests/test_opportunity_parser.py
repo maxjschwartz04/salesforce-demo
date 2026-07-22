@@ -8,7 +8,7 @@ from opportunity_parser import (
 )
 
 
-def opp(account_name, stage, close_date=None, opportunity_name=None, owner=None, next_step=None):
+def opp(account_name, stage, close_date=None, opportunity_name=None, owner=None, next_step=None, amount=None):
     return {
         "account_name": account_name,
         "opportunity_name": opportunity_name or f"{account_name}.OPP",
@@ -18,6 +18,8 @@ def opp(account_name, stage, close_date=None, opportunity_name=None, owner=None,
         "created_date": None,
         "type": "New Business",
         "next_step": next_step,
+        "amount": amount,
+        "expected_revenue": None,
     }
 
 
@@ -86,6 +88,16 @@ class TestBuildAccountStatus:
         records = [opp("Noom", "Negotiating")]
         status = build_account_status(records)
         assert status["Noom"]["open_next_steps"] == []
+
+    def test_open_amount_from_open_opportunity(self):
+        records = [opp("Noom", "Negotiating", amount=50000)]
+        status = build_account_status(records)
+        assert status["Noom"]["open_amount"] == 50000
+
+    def test_open_amount_none_when_no_open_opportunity(self):
+        records = [opp("McKee", "Closed Lost", amount=15000)]
+        status = build_account_status(records)
+        assert status["McKee"]["open_amount"] is None
 
 
 class TestListWinbackCandidates:
