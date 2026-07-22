@@ -20,6 +20,7 @@ import argparse
 import json
 import sys
 
+from campaign_parser import get_recent_engagements
 from opportunity_parser import find_account_status
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, suggest_reengagement_examples
@@ -48,6 +49,18 @@ def _actionable_status(staleness_status, opportunity_status):
 def _urgency_sort_key(row):
     ratio = row["result"].get("live_gap_ratio") or 0
     return (STATUS_SORT_PRIORITY.get(row["actionable_status"], 5), -ratio)
+
+
+def _format_engagement_lines(recent_engagements):
+    """Marketing engagement is context ("still active elsewhere"), not a
+    suggestion — no framing beyond the bare facts."""
+    lines = []
+    for e in recent_engagements:
+        lines.append(
+            f"  Marketing engagement ({e['date_group']}): {e['first_name']} {e['last_name']} — "
+            f"{e['member_status']} on \"{e['campaign_name']}\""
+        )
+    return lines
 
 
 def check_recent_sender_mix(records, nurture_senders):
@@ -90,16 +103,27 @@ def check_recent_sender_mix(records, nurture_senders):
 
 
 def run_tracker(
-    account_exports, revival_library, lessons_by_account=None, top_n=3, as_of=None, nurture_senders=None, account_status=None
+    account_exports,
+    revival_library,
+    lessons_by_account=None,
+    top_n=3,
+    as_of=None,
+    nurture_senders=None,
+    account_status=None,
+    campaign_by_company=None,
 ):
     """account_exports: iterable of (account_name, mhtml_path) for LIVE
     accounts (not closed-won — this is the thing being tracked, not the
     reference library). account_status: optional {account_name: {...}} from
     opportunity_parser.build_account_status — used to catch "stalled by pure
-    gap math, but actually already closed" false positives. Returns a list
-    of row dicts, sorted most-urgent-and-actionable-first; accounts confirmed
+    gap math, but actually already closed" false positives. campaign_by_company:
+    optional {company: [engagement, ...]} from campaign_parser.group_by_company
+    — surfaced as recent marketing-engagement facts, exact-match only (see
+    campaign_parser.get_recent_engagements for why). Returns a list of row
+    dicts, sorted most-urgent-and-actionable-first; accounts confirmed
     already closed sort last regardless of how stale their activity looks."""
     account_status = account_status or {}
+    campaign_by_company = campaign_by_company or {}
     rows = []
     for account_name, path in account_exports:
         html = extract_html_from_mhtml(path)
@@ -110,6 +134,7 @@ def run_tracker(
         opportunity_status = find_account_status(account_name, account_status)
         actionable_status = _actionable_status(result["staleness"]["status"], opportunity_status)
         sender_mix = check_recent_sender_mix(records, nurture_senders) if actionable_status == "stalled" else None
+        recent_engagements = get_recent_engagements(account_name, campaign_by_company)
         rows.append(
             {
                 "account": account_name,
@@ -117,6 +142,7 @@ def run_tracker(
                 "sender_mix": sender_mix,
                 "opportunity_status": opportunity_status,
                 "actionable_status": actionable_status,
+                "recent_engagements": recent_engagements,
             }
         )
 
@@ -141,6 +167,7 @@ def format_tracker_report(rows):
         if row["actionable_status"] == "closed_not_actionable":
             stages = row["opportunity_status"]["stages"]
             lines.append(f"{row['account']}: stalled by activity gap, but Opportunity stage is {stages} — closed, not actionable.")
+            lines.extend(_format_engagement_lines(row["recent_engagements"]))
             lines.append("")
             continue
 
@@ -151,6 +178,8 @@ def format_tracker_report(rows):
         if row["actionable_status"] == "stalled" and row["opportunity_status"]:
             for next_step in row["opportunity_status"]["open_next_steps"]:
                 lines.append(f'  Rep\'s own last "Next Step" note on the open deal: "{next_step}"')
+
+        lines.extend(_format_engagement_lines(row["recent_engagements"]))
 
         sender_mix = row["sender_mix"]
         if sender_mix is not None:
@@ -174,11 +203,13 @@ def format_tracker_report(rows):
     return "\n".join(lines).rstrip()
 
 
-def format_winback_section(candidates, top_n=15):
-    """Deliberately bare — account, lost opportunity, how long ago, owner.
-    No revival-library matches, no drafted messaging, no scoring. Per
-    explicit direction: win-back needs case-by-case human judgment, not
-    something that looks like a system recommendation."""
+def format_winback_section(candidates, top_n=15, campaign_by_company=None):
+    """Deliberately bare — account, lost opportunity, how long ago, owner,
+    and (if available) recent marketing engagement as a plain fact. No
+    revival-library matches, no drafted messaging, no scoring. Per explicit
+    direction: win-back needs case-by-case human judgment, not something
+    that looks like a system recommendation."""
+    campaign_by_company = campaign_by_company or {}
     lines = [
         f"{len(candidates)} accounts whose most recent Opportunity is Closed Lost "
         f"(sorted most-recent-loss-first; excludes accounts flagged acquired/defunct).",
@@ -187,6 +218,7 @@ def format_winback_section(candidates, top_n=15):
     ]
     for c in candidates[:top_n]:
         lines.append(f"  {c['days_since_loss']:5d}d ago  {c['account']:45s} ({c['opportunity_name']}, owner: {c['owner']})")
+        lines.extend(_format_engagement_lines(get_recent_engagements(c["account"], campaign_by_company, top_n=1)))
     if len(candidates) > top_n:
         lines.append(f"  ... and {len(candidates) - top_n} more")
     return "\n".join(lines)
@@ -203,6 +235,9 @@ def main():
         "actually already closed' false positives, and to list win-back candidates (Closed Lost accounts)",
     )
     parser.add_argument("--top-winback", type=int, default=15, help="How many win-back candidates to print (default 15)")
+    parser.add_argument(
+        "--campaign-report", help="Optional path to a Campaign Member report export (.xlsx) — surfaces recent marketing engagement"
+    )
     parser.add_argument(
         "--nurture-senders",
         nargs="*",
@@ -236,6 +271,12 @@ def main():
         account_status = build_account_status(opportunity_records)
         winback_candidates = list_winback_candidates(opportunity_records)
 
+    campaign_by_company = {}
+    if args.campaign_report:
+        from campaign_parser import group_by_company, parse_campaign_report
+
+        campaign_by_company = group_by_company(parse_campaign_report(args.campaign_report))
+
     account_exports = []
     for spec in args.accounts:
         if "=" not in spec:
@@ -250,6 +291,7 @@ def main():
         top_n=args.top_n,
         nurture_senders=args.nurture_senders,
         account_status=account_status,
+        campaign_by_company=campaign_by_company,
     )
 
     if args.output:
@@ -260,7 +302,7 @@ def main():
         if winback_candidates:
             print()
             print("--- Win-back candidates (separate from the above — see note) ---")
-            print(format_winback_section(winback_candidates, top_n=args.top_winback))
+            print(format_winback_section(winback_candidates, top_n=args.top_winback, campaign_by_company=campaign_by_company))
 
 
 if __name__ == "__main__":
