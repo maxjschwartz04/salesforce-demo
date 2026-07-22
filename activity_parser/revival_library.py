@@ -38,6 +38,15 @@ BILLING_NOISE_PATTERN = re.compile(r"\binvoic\w*\b|\boverdue\b", re.IGNORECASE)
 # happened to land there. Same shape of problem as billing noise.
 AUTO_REPLY_NOISE_PATTERN = re.compile(r"\bautomatic reply\b", re.IGNORECASE)
 
+# POLITICO Pro subscription/content threads ("Pro Briefing," "Pro Summit,"
+# "Pro renewal") don't carry the exact "POLITICO Pro" phrase and don't
+# always have a PRO.-prefixed related_to either, so they slip past the
+# parser-level noise filter and land here as if they were a real AgencyIQ
+# re-engagement. Confirmed against real data before adding this: 5 already-
+# contaminated revival moments existed for Kraft Heinz Foods Company alone
+# (4 "Pro Briefing" + 1 "Pro renewal") before this pattern was added.
+PRO_SUBSCRIPTION_NOISE_PATTERN = re.compile(r"\bpro (briefing|summit|renewal)\b", re.IGNORECASE)
+
 
 def _excerpt(record):
     """A short, readable snippet of what the re-engagement email actually said."""
@@ -118,6 +127,8 @@ def find_revival_moments(records, multiplier=STALLED_MULTIPLIER, min_engagement_
             continue  # silence was broken by an invoice/AR notice, not a sales re-engagement
         if AUTO_REPLY_NOISE_PATTERN.search(revival_subject):
             continue  # silence was broken by an OOO autoresponder, not a sales re-engagement
+        if PRO_SUBSCRIPTION_NOISE_PATTERN.search(revival_subject):
+            continue  # silence was broken by a Pro content/subscription thread, not a sales re-engagement
 
         if revival_index + 1 >= len(dated):
             continue  # re-engagement got no follow-up at all — not a proven revival

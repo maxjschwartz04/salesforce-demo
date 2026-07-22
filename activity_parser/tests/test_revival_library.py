@@ -58,6 +58,27 @@ class TestFindRevivalMoments:
         ]
         assert find_revival_moments(records) == []
 
+    def test_excludes_pro_briefing_noise(self):
+        records = baseline_records() + [
+            email_record("3/1/2026, 12:00 PM", "Email: 3.11 Pro Briefing: Biden's Climate Plan"),
+            email_record("3/3/2026, 12:00 PM", "Email: RE"),
+        ]
+        assert find_revival_moments(records) == []
+
+    def test_excludes_pro_summit_noise(self):
+        records = baseline_records() + [
+            email_record("3/1/2026, 12:00 PM", "Email: Invitation to our Pro Summit"),
+            email_record("3/3/2026, 12:00 PM", "Email: RE"),
+        ]
+        assert find_revival_moments(records) == []
+
+    def test_excludes_pro_renewal_noise(self):
+        records = baseline_records() + [
+            email_record("3/1/2026, 12:00 PM", "Email: RE: Upcoming Pro renewal - preferred rates"),
+            email_record("3/3/2026, 12:00 PM", "Email: RE"),
+        ]
+        assert find_revival_moments(records) == []
+
     def test_excludes_revival_broken_by_task_note_not_email(self):
         records = baseline_records() + [
             note_record("3/1/2026, 12:00 PM", "talk to Lily // reapproach"),
