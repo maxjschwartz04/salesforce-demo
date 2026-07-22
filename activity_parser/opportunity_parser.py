@@ -94,7 +94,9 @@ def _find_header(rows):
 
 def parse_opportunities_report(path):
     """Returns a flat list of {account_name, opportunity_name, owner, stage,
-    close_date, created_date, type} dicts, one per opportunity row."""
+    close_date, created_date, type, next_step} dicts, one per opportunity
+    row. next_step is the rep's own free-text plan for that opportunity —
+    real human judgment already in the data, not something we generate."""
     wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb[wb.sheetnames[0]]
     rows = list(ws.iter_rows(values_only=True))
@@ -121,6 +123,7 @@ def parse_opportunities_report(path):
                 "close_date": get(row, "Close Date"),
                 "created_date": get(row, "Created Date"),
                 "type": get(row, "Type"),
+                "next_step": get(row, "Next Step") or None,
             }
         )
 
@@ -129,9 +132,14 @@ def parse_opportunities_report(path):
 
 def build_account_status(records):
     """Returns {account_name: {"has_open_opportunity", "has_closed_won",
-    "stages", "opportunity_count"}}. An account not present as a key here
-    simply wasn't covered by whatever Opportunity export this came from —
-    callers should treat that as "unknown," not "no opportunities."""
+    "stages", "opportunity_count", "open_next_steps"}}. An account not
+    present as a key here simply wasn't covered by whatever Opportunity
+    export this came from — callers should treat that as "unknown," not "no
+    opportunities."
+
+    open_next_steps is the rep's own free-text plan for each currently-open
+    opportunity on the account (empty list if there isn't one, or the
+    account has none open) — surfaced as-is, not summarized or rewritten."""
     by_account = {}
     for r in records:
         by_account.setdefault(r["account_name"], []).append(r)
@@ -139,11 +147,13 @@ def build_account_status(records):
     status = {}
     for account, opps in by_account.items():
         stages = [o["stage"] for o in opps if o["stage"]]
+        open_opps = [o for o in opps if o["stage"] and o["stage"] not in CLOSED_STAGES]
         status[account] = {
             "has_open_opportunity": any(s not in CLOSED_STAGES for s in stages),
             "has_closed_won": any(s == "Closed Won" for s in stages),
             "stages": stages,
             "opportunity_count": len(opps),
+            "open_next_steps": [o["next_step"] for o in open_opps if o["next_step"]],
         }
     return status
 

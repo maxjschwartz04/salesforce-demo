@@ -148,6 +148,10 @@ def format_tracker_report(rows):
         if row["result"]["staleness"]["status"] == "stalled" and row["opportunity_status"] is None:
             lines.append("  Note: no Opportunity-stage data available for this account — not cross-checked against Salesforce.")
 
+        if row["actionable_status"] == "stalled" and row["opportunity_status"]:
+            for next_step in row["opportunity_status"]["open_next_steps"]:
+                lines.append(f'  Rep\'s own last "Next Step" note on the open deal: "{next_step}"')
+
         sender_mix = row["sender_mix"]
         if sender_mix is not None:
             if sender_mix["had_non_nurture_contact"]:
