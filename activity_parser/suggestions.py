@@ -79,6 +79,7 @@ def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DE
     result["examples"] = [
         {
             "account": moment["account"],
+            "source": moment.get("source", "unknown"),
             "gap_days": moment["gap_days"],
             "typical_gap_days": moment["typical_gap_days"],
             "gap_ratio": round(ratio, 2),
@@ -92,6 +93,16 @@ def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DE
     return result
 
 
+# Source labels shown next to each example so the reader knows how solid the
+# underlying data is — a raw Salesforce export vs. a human-curated narrative
+# that may have omitted routine touches (see revival_library.py /
+# narrative_parser.py docstrings for why that distinction matters).
+SOURCE_LABELS = {
+    "raw_export": "raw export",
+    "curated_narrative": "curated narrative — gaps may be sparser than real activity",
+}
+
+
 def format_suggestions_summary(result, account_name=None):
     lines = [format_staleness_summary(result["staleness"], account_name)]
 
@@ -99,8 +110,8 @@ def format_suggestions_summary(result, account_name=None):
         return lines[0]
 
     n = result["library_account_count"]
-    accounts = ", ".join(result["library_accounts"]) if result["library_accounts"] else "none"
     if result["library_is_small_sample"]:
+        accounts = ", ".join(result["library_accounts"]) if result["library_accounts"] else "none"
         lines.append(
             f"NOTE: reference library is a small sample — only {n} closed-won "
             f"account(s) ({accounts}). Treat what follows as examples to "
@@ -108,7 +119,7 @@ def format_suggestions_summary(result, account_name=None):
             f"leaning on this."
         )
     else:
-        lines.append(f"Reference library: {n} closed-won accounts ({accounts}).")
+        lines.append(f"Reference library: {n} closed-won accounts.")
 
     if not result["examples"]:
         lines.append("No comparable revival examples found in the library.")
@@ -119,8 +130,9 @@ def format_suggestions_summary(result, account_name=None):
         f"(this account is at {result['live_gap_ratio']}x its typical gap):"
     )
     for i, ex in enumerate(result["examples"], 1):
+        source_label = SOURCE_LABELS.get(ex["source"], ex["source"])
         lines.append(
-            f"  {i}. [{ex['account']}] {ex['gap_ratio']}x typical gap "
+            f"  {i}. [{ex['account']} -- {source_label}] {ex['gap_ratio']}x typical gap "
             f"({ex['gap_days']}d silence vs their {ex['typical_gap_days']}d norm) "
             f"-- \"{ex['revival_subject']}\" (got a response in {ex['days_to_next_response']}d)"
         )

@@ -33,6 +33,11 @@ EXCERPT_LENGTH = 220
 # qualify as a revival example.
 BILLING_NOISE_PATTERN = re.compile(r"\binvoic\w*\b|\boverdue\b", re.IGNORECASE)
 
+# An out-of-office autoresponder logged as the first activity after a gap
+# isn't a rep's re-engagement tactic either — it's just a bounce that
+# happened to land there. Same shape of problem as billing noise.
+AUTO_REPLY_NOISE_PATTERN = re.compile(r"\bautomatic reply\b", re.IGNORECASE)
+
 
 def _excerpt(record):
     """A short, readable snippet of what the re-engagement email actually said."""
@@ -62,8 +67,9 @@ def find_revival_moments(records, multiplier=STALLED_MULTIPLIER, min_engagement_
         email (has nested To/Subject/Body), not an internal task note like
         "talk to Lily // reapproach" or a bare call log — those aren't
         something we can hand back as "the email that worked"
-      - that email isn't a billing/invoice notice — those get logged as
-        activities too but aren't a rep's re-engagement tactic
+      - that email isn't a billing/invoice notice or an out-of-office
+        autoresponder — those get logged as activities too but aren't a
+        rep's re-engagement tactic
       - there's a later activity to measure a response against — a
         re-engagement email that got no reply at all isn't evidence of
         anything working, so it's excluded rather than reported with a
@@ -107,8 +113,11 @@ def find_revival_moments(records, multiplier=STALLED_MULTIPLIER, min_engagement_
         if not comments or not comments.get("email"):
             continue  # silence was broken by a task/call/note, not an email we can extract
 
-        if BILLING_NOISE_PATTERN.search(revival_record.get("subject") or ""):
+        revival_subject = revival_record.get("subject") or ""
+        if BILLING_NOISE_PATTERN.search(revival_subject):
             continue  # silence was broken by an invoice/AR notice, not a sales re-engagement
+        if AUTO_REPLY_NOISE_PATTERN.search(revival_subject):
+            continue  # silence was broken by an OOO autoresponder, not a sales re-engagement
 
         if revival_index + 1 >= len(dated):
             continue  # re-engagement got no follow-up at all — not a proven revival
@@ -143,6 +152,7 @@ def build_revival_library(account_exports):
         records = filter_and_sort_activities(parse_activities(html))
         for moment in find_revival_moments(records):
             moment["account"] = account_name
+            moment["source"] = "raw_export"
             library.append(moment)
 
     library.sort(key=lambda m: m["revival_date"])
