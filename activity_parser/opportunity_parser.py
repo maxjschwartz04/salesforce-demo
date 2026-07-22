@@ -55,10 +55,18 @@ def _normalize_company_name(name):
 def find_account_status(account_name, account_status):
     """Looks up account_name in the {account_name: status} map from
     build_account_status, tolerating naming differences between sources.
-    Tries an exact match first, then a normalized match, then a normalized
-    prefix match (in either direction) — but only commits to the prefix
-    match if it's unambiguous (exactly one candidate); otherwise returns
-    None rather than risk matching the wrong company."""
+    Tries an exact match first, then falls back to a single combined pool of
+    normalized-exact and normalized-prefix matches — only committing to a
+    match if that WHOLE pool has exactly one candidate.
+
+    Checking normalized-exact and prefix as separate tiers (exact first,
+    only falling back to prefix if exact found nothing) would let a
+    normalized-exact hit short-circuit before ever noticing that a
+    DIFFERENT real company also matches via prefix — e.g. "Acme" normalizes
+    to an exact match for "Acme Corporation" (suffix-stripped), which would
+    return confidently even if "Acme Industries" also exists in the same
+    data and is equally plausible. Pooling both tiers before checking
+    ambiguity closes that gap."""
     if account_name in account_status:
         return account_status[account_name]
 
@@ -66,17 +74,13 @@ def find_account_status(account_name, account_status):
     if not target:
         return None
 
-    exact_normalized = [name for name in account_status if _normalize_company_name(name) == target]
-    if len(exact_normalized) == 1:
-        return account_status[exact_normalized[0]]
-
-    prefix_matches = [
+    candidates = {
         name
         for name in account_status
-        if (norm := _normalize_company_name(name)) and (norm.startswith(target) or target.startswith(norm))
-    ]
-    if len(prefix_matches) == 1:
-        return account_status[prefix_matches[0]]
+        if (norm := _normalize_company_name(name)) and (norm == target or norm.startswith(target) or target.startswith(norm))
+    }
+    if len(candidates) == 1:
+        return account_status[next(iter(candidates))]
 
     return None  # no match, or ambiguous — don't guess
 
