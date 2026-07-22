@@ -170,6 +170,24 @@ def format_tracker_report(rows):
     return "\n".join(lines).rstrip()
 
 
+def format_winback_section(candidates, top_n=15):
+    """Deliberately bare — account, lost opportunity, how long ago, owner.
+    No revival-library matches, no drafted messaging, no scoring. Per
+    explicit direction: win-back needs case-by-case human judgment, not
+    something that looks like a system recommendation."""
+    lines = [
+        f"{len(candidates)} accounts whose most recent Opportunity is Closed Lost "
+        f"(sorted most-recent-loss-first; excludes accounts flagged acquired/defunct).",
+        "Facts only, for a human to review case by case — no suggested messaging attached on purpose:",
+        "",
+    ]
+    for c in candidates[:top_n]:
+        lines.append(f"  {c['days_since_loss']:5d}d ago  {c['account']:45s} ({c['opportunity_name']}, owner: {c['owner']})")
+    if len(candidates) > top_n:
+        lines.append(f"  ... and {len(candidates) - top_n} more")
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("accounts", nargs="+", metavar="NAME=PATH", help="Live accounts to check, as NAME=path/to/export.mhtml")
@@ -178,8 +196,9 @@ def main():
     parser.add_argument(
         "--opportunity-status",
         help="Optional path to an Opportunity report export (.xlsx) — used to catch 'stalled by gap math, "
-        "actually already closed' false positives",
+        "actually already closed' false positives, and to list win-back candidates (Closed Lost accounts)",
     )
+    parser.add_argument("--top-winback", type=int, default=15, help="How many win-back candidates to print (default 15)")
     parser.add_argument(
         "--nurture-senders",
         nargs="*",
@@ -205,10 +224,13 @@ def main():
                 lessons_by_account[raw_label] = lessons_by_account[narrative_label]
 
     account_status = {}
+    winback_candidates = []
     if args.opportunity_status:
-        from opportunity_parser import build_account_status, parse_opportunities_report
+        from opportunity_parser import build_account_status, list_winback_candidates, parse_opportunities_report
 
-        account_status = build_account_status(parse_opportunities_report(args.opportunity_status))
+        opportunity_records = parse_opportunities_report(args.opportunity_status)
+        account_status = build_account_status(opportunity_records)
+        winback_candidates = list_winback_candidates(opportunity_records)
 
     account_exports = []
     for spec in args.accounts:
@@ -228,9 +250,13 @@ def main():
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
-            json.dump(rows, f, indent=2, ensure_ascii=False)
+            json.dump({"rows": rows, "winback_candidates": winback_candidates}, f, indent=2, ensure_ascii=False)
     else:
         print(format_tracker_report(rows))
+        if winback_candidates:
+            print()
+            print("--- Win-back candidates (separate from the above — see note) ---")
+            print(format_winback_section(winback_candidates, top_n=args.top_winback))
 
 
 if __name__ == "__main__":

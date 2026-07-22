@@ -14,10 +14,23 @@ import argparse
 import json
 import re
 import sys
+from datetime import date, datetime
 
 import openpyxl
 
 CLOSED_STAGES = {"Closed Won", "Closed Lost"}
+
+# Account names sometimes carry their own status flag, e.g. "ACQUIRED - Clif
+# Bar" — not a win-back candidate at all if the company doesn't exist as an
+# independent entity anymore.
+DEFUNCT_ACCOUNT_PATTERN = re.compile(r"acquired|defunct|merged|out of business|bankrupt|dissolved", re.IGNORECASE)
+
+
+def _parse_close_date(record):
+    try:
+        return datetime.strptime(record["close_date"], "%m/%d/%Y")
+    except (ValueError, TypeError):
+        return None
 
 # The same company shows up under different labels across sources we don't
 # control — "Celldex Therapeutics" vs "Celldex Therapeutics, Inc.", "McKee"
@@ -133,6 +146,60 @@ def build_account_status(records):
             "opportunity_count": len(opps),
         }
     return status
+
+
+def list_winback_candidates(records, as_of=None):
+    """Every account whose MOST RECENT Opportunity (by close date) is Closed
+    Lost — a candidate list for a human-led win-back conversation, NOT a
+    scored or drafted recommendation.
+
+    Deliberately facts-only: account, the lost opportunity, how long ago,
+    and deal size. No revival-library matching, no suggested messaging. A
+    win-back needs to know WHY a deal was lost and to whom — this data
+    can't tell us that, so anything beyond the raw facts would risk
+    dressing up generic advice as insight on a situation that specifically
+    isn't generic.
+
+    Sorted MOST-RECENT-loss-first, not longest-quiet-first — unlike a live
+    stalled deal (where longer silence is more urgent), a loss from 2016 is
+    stale precedent, not something worth acting on; a recent loss is more
+    likely to still have relevant, current context (the buyer, the budget,
+    the reason it fell through). Accounts flagged as acquired/defunct in
+    their own name are excluded outright — not a real candidate.
+    """
+    if as_of is None:
+        as_of = date.today()
+
+    by_account = {}
+    for r in records:
+        by_account.setdefault(r["account_name"], []).append(r)
+
+    candidates = []
+    for account, opps in by_account.items():
+        if DEFUNCT_ACCOUNT_PATTERN.search(account):
+            continue
+
+        dated = [(_parse_close_date(o), o) for o in opps]
+        dated = sorted(((d, o) for d, o in dated if d is not None), key=lambda x: x[0])
+        if not dated:
+            continue
+
+        most_recent_date, most_recent_opp = dated[-1]
+        if most_recent_opp["stage"] != "Closed Lost":
+            continue
+
+        candidates.append(
+            {
+                "account": account,
+                "opportunity_name": most_recent_opp["opportunity_name"],
+                "owner": most_recent_opp["owner"],
+                "close_date": most_recent_opp["close_date"],
+                "days_since_loss": (as_of - most_recent_date.date()).days,
+            }
+        )
+
+    candidates.sort(key=lambda c: c["days_since_loss"])
+    return candidates
 
 
 def main():
