@@ -23,6 +23,18 @@ from staleness import assess_staleness, format_staleness_summary
 
 DEFAULT_TOP_N = 3
 
+# The 7 accounts we deliberately kept on raw-export data (revival_library.py)
+# were labeled with whatever name was handed to that CLI, which doesn't
+# always match the narrative doc's own heading text for the same company
+# (e.g. "Kerry Inc." vs "Kerry, Inc."). Lesson lookup is exact-string, so
+# without this alias map their real curator notes would silently never
+# attach, even though the notes exist and are about the same company.
+RAW_EXPORT_NAME_ALIASES = {
+    "Celldex Therapeutics": "Celldex Therapeutics, Inc.",
+    "Kerry Inc.": "Kerry, Inc.",
+    "Geron": "Geron Corporation",
+}
+
 # Below this many closed-won accounts backing the library, flag it as a thin
 # sample in the output. Not a hard cutoff — the analysis on Geron + LEO
 # Pharma (2 accounts) suggested something like 8-10 before patterns are
@@ -37,10 +49,14 @@ def _gap_ratio(gap_days, typical_gap_days):
     return gap_days / typical_gap_days
 
 
-def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DEFAULT_TOP_N):
+def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DEFAULT_TOP_N, lessons_by_account=None):
     """records: filtered, chronologically sorted activities for ONE live
     account. revival_library: the flat list of revival-moment dicts from
     revival_library.build_revival_library (or its JSON output, loaded back).
+    lessons_by_account: optional {account_name: [lesson_text, ...]}, from
+    narrative_parser.extract_lessons — a rep's own account-history judgment
+    (from the closed-won master doc) surfaced alongside a matching example,
+    not just the mechanically-derived stats.
 
     Runs the staleness check; if the account isn't stalled, returns that
     status with no examples (there's nothing to suggest re-engaging about).
@@ -48,6 +64,7 @@ def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DE
     gap-vs-typical-rhythm ratio matches the live account's own ratio, and
     returns the top `top_n` closest matches.
     """
+    lessons_by_account = lessons_by_account or {}
     assessment = assess_staleness(records, as_of=as_of)
     accounts_in_library = sorted({m["account"] for m in revival_library if m.get("account")})
 
@@ -87,6 +104,7 @@ def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DE
             "revival_subject": moment.get("revival_subject"),
             "revival_excerpt": moment.get("revival_excerpt"),
             "days_to_next_response": moment.get("days_to_next_response"),
+            "curator_notes": lessons_by_account.get(moment["account"], []),
         }
         for diff, ratio, moment in candidates[:top_n]
     ]
@@ -138,6 +156,8 @@ def format_suggestions_summary(result, account_name=None):
         )
         if ex["revival_excerpt"]:
             lines.append(f"     \"{ex['revival_excerpt']}\"")
+        for note in ex.get("curator_notes", []):
+            lines.append(f"     Rep's own note on this deal: {note}")
 
     return "\n".join(lines)
 
@@ -148,14 +168,27 @@ def main():
     parser.add_argument("--library", required=True, help="Path to a revival library JSON file (from revival_library.py)")
     parser.add_argument("--account-name", help="Label to print alongside the summary")
     parser.add_argument("--top-n", type=int, default=DEFAULT_TOP_N)
+    parser.add_argument(
+        "--narrative-doc", help="Optional path to the closed-won master .docx, to surface curator notes alongside matches"
+    )
     args = parser.parse_args()
 
     with open(args.library, encoding="utf-8") as f:
         revival_library = json.load(f)
 
+    lessons_by_account = {}
+    if args.narrative_doc:
+        from narrative_parser import extract_lessons
+
+        for lesson in extract_lessons(args.narrative_doc):
+            lessons_by_account.setdefault(lesson["account"], []).append(lesson["text"])
+        for raw_label, narrative_label in RAW_EXPORT_NAME_ALIASES.items():
+            if narrative_label in lessons_by_account:
+                lessons_by_account[raw_label] = lessons_by_account[narrative_label]
+
     html = extract_html_from_mhtml(args.mhtml_path)
     records = filter_and_sort_activities(parse_activities(html))
-    result = suggest_reengagement_examples(records, revival_library, top_n=args.top_n)
+    result = suggest_reengagement_examples(records, revival_library, top_n=args.top_n, lessons_by_account=lessons_by_account)
     print(format_suggestions_summary(result, args.account_name))
 
 

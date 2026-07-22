@@ -14,9 +14,15 @@ account's true touch history. Every moment built from this source is tagged
 "source": "curated_narrative" (vs. "raw_export" for the mhtml pipeline) so
 that reliability difference travels with the data rather than getting lost.
 
-The document's own "⚠" annotations (where a human already flagged notable
-gaps or data-quality issues) are deliberately NOT parsed as data — they're
-treated as commentary, not touches, and skipped.
+The document's own "⚠" annotations are never parsed as touches (they'd
+corrupt the gap math if they were), but extract_lessons() pulls them out as
+a SEPARATE layer: human judgment from the reps who ran these deals about
+*why* a gap broke, which is a stronger signal than anything derived from
+keyword-matching subject lines. Most of these annotations (~85% in the
+first version of this doc) turn out to be a repetitive data-quality caveat
+("export only captured corrupted HTML for this entry") rather than actual
+insight — extract_lessons() filters those out and returns only the ones
+that describe what actually happened in the deal.
 
 Usage:
     python narrative_parser.py master_doc.docx --exclude "Celldex Therapeutics, Inc." "GSK" -o narrative_library.json
@@ -36,6 +42,18 @@ TOUCH_LINE_PATTERN = re.compile(r"^(\d{1,2}/\d{1,2}/\d{4})\s*[—-]\s*(.+)$")
 SUBJECT_PATTERN = re.compile(r'"([^"]+)"')
 SECTION_DIVIDER_PATTERN = re.compile(r"^-{2,}.*-{2,}$")
 ACCOUNT_HEADING_NUMBER_PATTERN = re.compile(r"^\d+\.\s*")
+
+# Annotation categories that aren't a "lesson" about what worked — a data
+# export flaw or a scene-setting aside isn't judgment about the deal.
+_BOILERPLATE_ANNOTATION_PATTERNS = [
+    re.compile(r"corrupted|export only captured", re.IGNORECASE),
+    re.compile(r"no significant time gap|continuously documented", re.IGNORECASE),
+    re.compile(r"^⚠\s*first account under", re.IGNORECASE),
+]
+
+
+def _is_boilerplate_annotation(text):
+    return any(p.search(text) for p in _BOILERPLATE_ANNOTATION_PATTERNS)
 
 # The doc's own placeholder for content it deliberately left out ("...not
 # reproduced here to reduce document length..."). That's not real body
@@ -103,6 +121,35 @@ def parse_narrative_docx(path):
             current_touch["body_lines"].append(text)
 
     return accounts
+
+
+def extract_lessons(path):
+    """Pulls the document's "⚠" annotations that describe actual deal
+    judgment (a notable gap and what broke it, or a qualitative read on the
+    deal's shape), filtering out the boilerplate data-quality caveats and
+    scene-setting asides that make up most of them.
+
+    Returns [{"account": str, "text": str}, ...] in document order. An
+    account can have more than one lesson (e.g. a second, later expansion
+    deal logged under the same company name)."""
+    doc = docx.Document(path)
+
+    current_account = None
+    lessons = []
+    for paragraph in doc.paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        style = paragraph.style.name if paragraph.style else None
+
+        if style == "Heading 2":
+            current_account = ACCOUNT_HEADING_NUMBER_PATTERN.sub("", text).strip()
+            continue
+
+        if text.startswith("⚠") and current_account is not None and not _is_boilerplate_annotation(text):
+            lessons.append({"account": current_account, "text": text.lstrip("⚠").strip()})
+
+    return lessons
 
 
 def _touch_to_record(touch):
