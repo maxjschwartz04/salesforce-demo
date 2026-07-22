@@ -20,6 +20,7 @@ import argparse
 import json
 import sys
 
+from opportunity_parser import find_account_status
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, suggest_reengagement_examples
 
@@ -28,13 +29,25 @@ from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, sug
 # Arbitrary but reasonable: about a typical outreach cycle.
 NURTURE_LOOKBACK_TOUCHES = 5
 
-STATUS_SORT_PRIORITY = {"stalled": 0, "on_pace": 1, "insufficient_history": 2, "no_activity": 3}
+# "closed_not_actionable" sorts last: pure gap math said "stalled," but a
+# cross-check against real Opportunity data confirmed the account has no
+# open deal — it's quiet because it's over, not because it needs a rep.
+STATUS_SORT_PRIORITY = {"stalled": 0, "on_pace": 1, "insufficient_history": 2, "no_activity": 3, "closed_not_actionable": 4}
+
+
+def _actionable_status(staleness_status, opportunity_status):
+    """staleness_status is the pure gap-math verdict from assess_staleness —
+    left untouched for auditability. This derives what a rep should actually
+    see: a "stalled" account whose only known Opportunities are all closed
+    isn't something to act on, regardless of how the gap math reads."""
+    if staleness_status == "stalled" and opportunity_status is not None and not opportunity_status["has_open_opportunity"]:
+        return "closed_not_actionable"
+    return staleness_status
 
 
 def _urgency_sort_key(row):
-    status = row["result"]["staleness"]["status"]
     ratio = row["result"].get("live_gap_ratio") or 0
-    return (STATUS_SORT_PRIORITY.get(status, 4), -ratio)
+    return (STATUS_SORT_PRIORITY.get(row["actionable_status"], 5), -ratio)
 
 
 def check_recent_sender_mix(records, nurture_senders):
@@ -76,11 +89,17 @@ def check_recent_sender_mix(records, nurture_senders):
     }
 
 
-def run_tracker(account_exports, revival_library, lessons_by_account=None, top_n=3, as_of=None, nurture_senders=None):
+def run_tracker(
+    account_exports, revival_library, lessons_by_account=None, top_n=3, as_of=None, nurture_senders=None, account_status=None
+):
     """account_exports: iterable of (account_name, mhtml_path) for LIVE
     accounts (not closed-won — this is the thing being tracked, not the
-    reference library). Returns a list of row dicts, sorted stalled-and-most-
-    overdue-first."""
+    reference library). account_status: optional {account_name: {...}} from
+    opportunity_parser.build_account_status — used to catch "stalled by pure
+    gap math, but actually already closed" false positives. Returns a list
+    of row dicts, sorted most-urgent-and-actionable-first; accounts confirmed
+    already closed sort last regardless of how stale their activity looks."""
+    account_status = account_status or {}
     rows = []
     for account_name, path in account_exports:
         html = extract_html_from_mhtml(path)
@@ -88,19 +107,47 @@ def run_tracker(account_exports, revival_library, lessons_by_account=None, top_n
         result = suggest_reengagement_examples(
             records, revival_library, as_of=as_of, top_n=top_n, lessons_by_account=lessons_by_account
         )
-        sender_mix = check_recent_sender_mix(records, nurture_senders) if result["staleness"]["status"] == "stalled" else None
-        rows.append({"account": account_name, "result": result, "sender_mix": sender_mix})
+        opportunity_status = find_account_status(account_name, account_status)
+        actionable_status = _actionable_status(result["staleness"]["status"], opportunity_status)
+        sender_mix = check_recent_sender_mix(records, nurture_senders) if actionable_status == "stalled" else None
+        rows.append(
+            {
+                "account": account_name,
+                "result": result,
+                "sender_mix": sender_mix,
+                "opportunity_status": opportunity_status,
+                "actionable_status": actionable_status,
+            }
+        )
 
     rows.sort(key=_urgency_sort_key)
     return rows
 
 
 def format_tracker_report(rows):
-    stalled = [r for r in rows if r["result"]["staleness"]["status"] == "stalled"]
-    lines = [f"{len(stalled)} of {len(rows)} tracked accounts are stalled.", ""]
+    actionable_stalled = [r for r in rows if r["actionable_status"] == "stalled"]
+    closed_not_actionable = [r for r in rows if r["actionable_status"] == "closed_not_actionable"]
+    lines = [
+        f"{len(actionable_stalled)} of {len(rows)} tracked accounts are stalled with an open deal.",
+    ]
+    if closed_not_actionable:
+        lines.append(
+            f"({len(closed_not_actionable)} more looked stalled by pure activity-gap math, but their only known "
+            f"Opportunities are already closed — not shown as actionable below.)"
+        )
+    lines.append("")
 
     for row in rows:
+        if row["actionable_status"] == "closed_not_actionable":
+            stages = row["opportunity_status"]["stages"]
+            lines.append(f"{row['account']}: stalled by activity gap, but Opportunity stage is {stages} — closed, not actionable.")
+            lines.append("")
+            continue
+
         lines.append(format_suggestions_summary(row["result"], row["account"]))
+        if row["result"]["staleness"]["status"] == "stalled" and row["opportunity_status"] is None:
+            lines.append("  Note: no Opportunity-stage data available for this account — not cross-checked against Salesforce.")
+
         sender_mix = row["sender_mix"]
         if sender_mix is not None:
             if sender_mix["had_non_nurture_contact"]:
@@ -129,6 +176,11 @@ def main():
     parser.add_argument("--library", required=True, help="Path to a revival library JSON file (from revival_library.py)")
     parser.add_argument("--narrative-doc", help="Optional path to the closed-won master .docx, for curator notes")
     parser.add_argument(
+        "--opportunity-status",
+        help="Optional path to an Opportunity report export (.xlsx) — used to catch 'stalled by gap math, "
+        "actually already closed' false positives",
+    )
+    parser.add_argument(
         "--nurture-senders",
         nargs="*",
         default=[],
@@ -152,6 +204,12 @@ def main():
             if narrative_label in lessons_by_account:
                 lessons_by_account[raw_label] = lessons_by_account[narrative_label]
 
+    account_status = {}
+    if args.opportunity_status:
+        from opportunity_parser import build_account_status, parse_opportunities_report
+
+        account_status = build_account_status(parse_opportunities_report(args.opportunity_status))
+
     account_exports = []
     for spec in args.accounts:
         if "=" not in spec:
@@ -160,7 +218,12 @@ def main():
         account_exports.append((name, path))
 
     rows = run_tracker(
-        account_exports, revival_library, lessons_by_account=lessons_by_account, top_n=args.top_n, nurture_senders=args.nurture_senders
+        account_exports,
+        revival_library,
+        lessons_by_account=lessons_by_account,
+        top_n=args.top_n,
+        nurture_senders=args.nurture_senders,
+        account_status=account_status,
     )
 
     if args.output:
