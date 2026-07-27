@@ -22,7 +22,7 @@ import sys
 
 from activity_feed import build_activity_feed
 from campaign_parser import get_recent_engagements
-from opportunity_parser import find_account_status
+from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, suggest_reengagement_examples
 
@@ -130,9 +130,12 @@ def run_tracker(
     accounts (not closed-won — this is the thing being tracked, not the
     reference library). account_status: optional {account_name: {...}} from
     opportunity_parser.build_account_status — used to catch "stalled by pure
-    gap math, but actually already closed" false positives. campaign_by_company:
-    optional {company: [engagement, ...]} from campaign_parser.group_by_company
-    — surfaced as recent marketing-engagement facts, exact-match only (see
+    gap math, but actually already closed" false positives, AND to skip
+    existing customers entirely (see opportunity_parser.is_prospect — this
+    tool is new-business only; Account Management owns outreach to accounts
+    that have ever closed a deal). campaign_by_company: optional {company:
+    [engagement, ...]} from campaign_parser.group_by_company — surfaced as
+    recent marketing-engagement facts, exact-match only (see
     campaign_parser.get_recent_engagements for why). Returns a list of row
     dicts, sorted most-urgent-and-actionable-first; accounts confirmed
     already closed sort last regardless of how stale their activity looks."""
@@ -140,6 +143,8 @@ def run_tracker(
     campaign_by_company = campaign_by_company or {}
     rows = []
     for account_name, path in account_exports:
+        if not is_prospect(account_name, account_status):
+            continue  # existing customer -- Account Management's account, not new-business pipeline
         html = extract_html_from_mhtml(path)
         records = filter_and_sort_activities(parse_activities(html))
         result = suggest_reengagement_examples(

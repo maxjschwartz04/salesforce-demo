@@ -4,6 +4,7 @@ from opportunity_parser import (
     _normalize_company_name,
     build_account_status,
     find_account_status,
+    is_prospect,
     list_winback_candidates,
 )
 
@@ -98,6 +99,24 @@ class TestBuildAccountStatus:
         records = [opp("McKee", "Closed Lost", amount=15000)]
         status = build_account_status(records)
         assert status["McKee"]["open_amount"] is None
+
+
+class TestIsProspect:
+    def test_never_closed_won_is_a_prospect(self):
+        status = {"Noom": {"has_closed_won": False}}
+        assert is_prospect("Noom", status) is True
+
+    def test_has_closed_won_is_not_a_prospect(self):
+        # Explicit scope decision: once an account has ANY Closed Won deal,
+        # it's Account Management's account for good, even with a separate
+        # new open deal running.
+        status = {"McKee Foods Corporation": {"has_closed_won": True}}
+        assert is_prospect("McKee", status) is False
+
+    def test_unknown_account_is_treated_as_a_prospect(self):
+        # No Opportunity data at all isn't confirmation of being a customer
+        # -- don't wrongly exclude a real prospect for lack of data.
+        assert is_prospect("Totally Unknown Co", {}) is True
 
 
 class TestListWinbackCandidates:
