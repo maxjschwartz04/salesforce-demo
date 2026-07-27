@@ -75,16 +75,19 @@ class TestSuggestNextStep:
         assert suggest_next_step(row) is None
 
     def test_combines_next_step_and_precedent(self):
+        # Reads as a suggestion, not a citation -- no account name or
+        # subject line in the sentence, just the rep's plan plus the real
+        # response-time as a plain fact.
         row = {
             "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
             "examples": [self._precedent()],
             "staleness": {"days_since_last_touch": 90},
         }
         sentence = suggest_next_step(row)
-        assert "confirm budget by June" in sentence
-        assert "90d" in sentence
-        assert "Geron" in sentence
-        assert "6.0d" in sentence
+        assert sentence.startswith("confirm budget by June")
+        assert "6.0" in sentence
+        assert "Geron" not in sentence
+        assert "Re: reconnect" not in sentence
 
     def test_next_step_only_when_no_precedent(self):
         row = {
@@ -93,8 +96,7 @@ class TestSuggestNextStep:
             "staleness": {"days_since_last_touch": 90},
         }
         sentence = suggest_next_step(row)
-        assert "confirm budget by June" in sentence
-        assert "Geron" not in sentence
+        assert sentence == "confirm budget by June"
 
     def test_precedent_only_when_no_next_step(self):
         row = {
@@ -103,17 +105,9 @@ class TestSuggestNextStep:
             "staleness": {"days_since_last_touch": 90},
         }
         sentence = suggest_next_step(row)
-        assert "Geron" in sentence
-        assert "No logged next step" in sentence
-
-    def test_never_replaces_missing_days_since_with_a_guess(self):
-        row = {
-            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
-            "examples": [],
-            "staleness": {},
-        }
-        sentence = suggest_next_step(row)
-        assert "?d ago" in sentence
+        assert "6.0" in sentence
+        assert "Geron" not in sentence
+        assert "Reach out directly" in sentence
 
 
 class TestNextStepDisplay:
@@ -141,7 +135,7 @@ class TestNextStepDisplay:
         result = next_step_display(row)
         assert result["mode"] == "blended"
         assert "confirm budget by June" in result["text"]
-        assert "Geron" in result["text"]
+        assert "Geron" not in result["text"]
 
     def test_stalled_shows_blended_not_raw(self):
         row = {

@@ -84,33 +84,31 @@ def match_plays(row):
 
 
 # Fill-in-the-blank sentence shapes, not generated prose -- same "your team
-# edits this, not a model" principle as PLAYS above. Which shape gets used
-# depends on which real fields actually exist for this account; a blank
-# with nothing real to put in it just isn't filled in, never invented.
+# edits this, not a model" principle as PLAYS above. Reads as a suggestion,
+# not a citation -- no account names or subject lines named in the sentence
+# itself (that's what made earlier drafts read like a footnote explaining
+# where the suggestion came from rather than just making the suggestion).
+# Which shape gets used depends on which real fields actually exist for
+# this account; a blank with nothing real to put in it just isn't filled
+# in, never invented.
 NEXT_STEP_TEMPLATES = {
     "next_step_and_precedent": (
-        'Last logged plan was "{next_step}" ({days_since}d ago) — on {precedent_account}, '
-        'a similarly long silence broke after "{precedent_subject}", with a reply in {precedent_response_days}d.'
+        "{next_step} — similarly quiet accounts have come back within about "
+        "{precedent_response_days} days once someone reached out directly."
     ),
-    "next_step_only": (
-        'Last logged plan was "{next_step}" ({days_since}d ago) — no comparable closed-won precedent to check it against yet.'
-    ),
+    "next_step_only": "{next_step}",
     "precedent_only": (
-        'No logged next step on file — on {precedent_account}, a similarly long silence broke '
-        'after "{precedent_subject}", with a reply in {precedent_response_days}d.'
+        "Reach out directly — similarly quiet accounts have come back within "
+        "about {precedent_response_days} days once someone did."
     ),
 }
 
 
 def suggest_next_step(row):
-    """A one-sentence, template-filled suggestion that combines the rep's
-    own last logged plan with the closest closed-won precedent's real
-    subject line and reply time. The rep's note is a snapshot from
-    whenever they last touched the account, so on its own it can read as
-    current advice when it's actually old — this pairs it with real
-    precedent rather than replacing it. It quotes the raw next step
-    verbatim inside the sentence, so nothing real is lost even when this
-    replaces the raw note in the UI (see next_step_display()).
+    """A one-sentence, template-filled suggestion that leads with the rep's
+    own last logged plan and, where a closed-won precedent exists, folds in
+    its real response-time as a plain suggestion — not a citation, so the
+    sentence doesn't name which account or email it came from.
 
     Deliberately NOT generated prose: only the fixed sentence shapes in
     NEXT_STEP_TEMPLATES are used, and every blank is a real field pulled
@@ -123,23 +121,15 @@ def suggest_next_step(row):
     examples = row.get("examples") or []
     precedent = examples[0] if examples else None
 
-    days_since = (row.get("staleness") or {}).get("days_since_last_touch")
-    days_since_label = days_since if days_since is not None else "?"
-
     if next_step and precedent:
         return NEXT_STEP_TEMPLATES["next_step_and_precedent"].format(
             next_step=next_step,
-            days_since=days_since_label,
-            precedent_account=precedent["account"],
-            precedent_subject=precedent.get("revival_subject") or "(no subject)",
             precedent_response_days=precedent.get("days_to_next_response"),
         )
     if next_step:
-        return NEXT_STEP_TEMPLATES["next_step_only"].format(next_step=next_step, days_since=days_since_label)
+        return NEXT_STEP_TEMPLATES["next_step_only"].format(next_step=next_step)
     if precedent:
         return NEXT_STEP_TEMPLATES["precedent_only"].format(
-            precedent_account=precedent["account"],
-            precedent_subject=precedent.get("revival_subject") or "(no subject)",
             precedent_response_days=precedent.get("days_to_next_response"),
         )
     return None
