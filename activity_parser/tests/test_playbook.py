@@ -1,4 +1,4 @@
-from playbook import compose_starting_draft, match_plays
+from playbook import compose_starting_draft, match_plays, suggest_next_step
 
 
 class TestMatchPlays:
@@ -64,3 +64,53 @@ class TestComposeStartingDraft:
         row = {"sender_mix": None, "opportunity_status": None, "examples": []}
         draft = compose_starting_draft(row)
         assert "not a generated message" in draft["note"]
+
+
+class TestSuggestNextStep:
+    def _precedent(self, account="Geron", days=6.0):
+        return {"account": account, "revival_subject": "Re: reconnect", "days_to_next_response": days}
+
+    def test_returns_none_with_nothing_real_to_draw_from(self):
+        row = {"opportunity_status": None, "examples": [], "staleness": {"days_since_last_touch": 50}}
+        assert suggest_next_step(row) is None
+
+    def test_combines_next_step_and_precedent(self):
+        row = {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [self._precedent()],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        sentence = suggest_next_step(row)
+        assert "confirm budget by June" in sentence
+        assert "90d" in sentence
+        assert "Geron" in sentence
+        assert "6.0d" in sentence
+
+    def test_next_step_only_when_no_precedent(self):
+        row = {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        sentence = suggest_next_step(row)
+        assert "confirm budget by June" in sentence
+        assert "Geron" not in sentence
+
+    def test_precedent_only_when_no_next_step(self):
+        row = {
+            "opportunity_status": None,
+            "examples": [self._precedent()],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        sentence = suggest_next_step(row)
+        assert "Geron" in sentence
+        assert "No logged next step" in sentence
+
+    def test_never_replaces_missing_days_since_with_a_guess(self):
+        row = {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {},
+        }
+        sentence = suggest_next_step(row)
+        assert "?d ago" in sentence

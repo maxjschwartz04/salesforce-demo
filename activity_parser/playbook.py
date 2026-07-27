@@ -26,8 +26,16 @@ never generated prose making a new claim. It's explicitly labeled a
 starting point for a human to edit, not a finished message, and there is
 no send capability anywhere in this codebase.
 
+suggest_next_step() is a smaller, one-sentence version of the same idea:
+the rep's own Next Step note is a snapshot from whenever they last touched
+the account, so showing it alone can read as current advice when it's
+actually stale. This pairs it with the closest closed-won precedent using
+a fixed, editable sentence template (see NEXT_STEP_TEMPLATES) — never
+generated prose — and is meant to sit ALONGSIDE the raw note, not replace
+it.
+
 Usage:
-    from playbook import match_plays, compose_starting_draft
+    from playbook import match_plays, compose_starting_draft, suggest_next_step
 """
 
 PLAYS = [
@@ -70,6 +78,69 @@ def match_plays(row):
     the subset of PLAYS whose trigger fires for this account — always
     includes the manual-check play, since it's a reminder, not a detection."""
     return [play for play in PLAYS if play["trigger"](row)]
+
+
+
+# Fill-in-the-blank sentence shapes, not generated prose -- same "your team
+# edits this, not a model" principle as PLAYS above. Which shape gets used
+# depends on which real fields actually exist for this account; a blank
+# with nothing real to put in it just isn't filled in, never invented.
+NEXT_STEP_TEMPLATES = {
+    "next_step_and_precedent": (
+        'Last logged plan was "{next_step}" ({days_since}d ago) — on {precedent_account}, '
+        'a similarly long silence broke after "{precedent_subject}", with a reply in {precedent_response_days}d.'
+    ),
+    "next_step_only": (
+        'Last logged plan was "{next_step}" ({days_since}d ago) — no comparable closed-won precedent to check it against yet.'
+    ),
+    "precedent_only": (
+        'No logged next step on file — on {precedent_account}, a similarly long silence broke '
+        'after "{precedent_subject}", with a reply in {precedent_response_days}d.'
+    ),
+}
+
+
+def suggest_next_step(row):
+    """A one-sentence, template-filled suggestion that combines the rep's
+    own last logged plan with the closest closed-won precedent's real
+    subject line and reply time. The rep's note is a snapshot from
+    whenever they last touched the account, so on its own it can read as
+    current advice when it's actually old — this pairs it with real
+    precedent rather than replacing it, and is meant to be shown ALONGSIDE
+    the raw Next Step note, not instead of it, so nothing real is hidden
+    behind a summary.
+
+    Deliberately NOT generated prose: only the fixed sentence shapes in
+    NEXT_STEP_TEMPLATES are used, and every blank is a real field pulled
+    from this account's own data. Returns None if there's neither a next
+    step nor a precedent to build from — never fabricates a sentence to
+    fill the gap."""
+    opp_status = row.get("opportunity_status") or {}
+    next_step = (opp_status.get("open_next_steps") or [None])[0]
+
+    examples = row.get("examples") or []
+    precedent = examples[0] if examples else None
+
+    days_since = (row.get("staleness") or {}).get("days_since_last_touch")
+    days_since_label = days_since if days_since is not None else "?"
+
+    if next_step and precedent:
+        return NEXT_STEP_TEMPLATES["next_step_and_precedent"].format(
+            next_step=next_step,
+            days_since=days_since_label,
+            precedent_account=precedent["account"],
+            precedent_subject=precedent.get("revival_subject") or "(no subject)",
+            precedent_response_days=precedent.get("days_to_next_response"),
+        )
+    if next_step:
+        return NEXT_STEP_TEMPLATES["next_step_only"].format(next_step=next_step, days_since=days_since_label)
+    if precedent:
+        return NEXT_STEP_TEMPLATES["precedent_only"].format(
+            precedent_account=precedent["account"],
+            precedent_subject=precedent.get("revival_subject") or "(no subject)",
+            precedent_response_days=precedent.get("days_to_next_response"),
+        )
+    return None
 
 
 def compose_starting_draft(row):
