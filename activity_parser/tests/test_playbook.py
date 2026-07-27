@@ -85,7 +85,7 @@ class TestSuggestNextStep:
         }
         sentence = suggest_next_step(row)
         assert sentence.startswith("confirm budget by June")
-        assert "6.0" in sentence
+        assert "within about 6 days" in sentence
         assert "Geron" not in sentence
         assert "Re: reconnect" not in sentence
 
@@ -105,9 +105,31 @@ class TestSuggestNextStep:
             "staleness": {"days_since_last_touch": 90},
         }
         sentence = suggest_next_step(row)
-        assert "6.0" in sentence
+        assert "within about 6 days" in sentence
         assert "Geron" not in sentence
         assert "Reach out directly" in sentence
+
+    def test_same_day_response_reads_naturally_not_as_zero_days(self):
+        # Real data has plenty of these -- roughly a third of real
+        # precedents in the closed-won library are same-day replies.
+        row = {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [self._precedent(days=0.0)],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        sentence = suggest_next_step(row)
+        assert "0.0 days" not in sentence
+        assert "the same day" in sentence
+
+    def test_fractional_response_time_rounds_to_a_whole_number(self):
+        row = {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [self._precedent(days=104.21)],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        sentence = suggest_next_step(row)
+        assert "104.21" not in sentence
+        assert "within about 104 days" in sentence
 
 
 class TestNextStepDisplay:

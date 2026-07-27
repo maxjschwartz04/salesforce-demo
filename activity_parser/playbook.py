@@ -93,15 +93,27 @@ def match_plays(row):
 # in, never invented.
 NEXT_STEP_TEMPLATES = {
     "next_step_and_precedent": (
-        "{next_step} — similarly quiet accounts have come back within about "
-        "{precedent_response_days} days once someone reached out directly."
+        "{next_step} — similarly quiet accounts have come back {response_time_phrase} once someone reached out directly."
     ),
     "next_step_only": "{next_step}",
-    "precedent_only": (
-        "Reach out directly — similarly quiet accounts have come back within "
-        "about {precedent_response_days} days once someone did."
-    ),
+    "precedent_only": ("Reach out directly — similarly quiet accounts have come back {response_time_phrase} once someone did."),
 }
+
+
+def _response_time_phrase(days):
+    """Turns a raw response-time number into a phrase that reads naturally
+    at any value -- "within about 6 days" is fine, but the raw number
+    reads oddly at the extremes real data actually has: same-day replies
+    (0.0, and these are common -- roughly a third of real precedents in
+    this library) and long fractional gaps (e.g. 104.21) that don't need
+    two decimal places to make the point."""
+    if days is None:
+        return "eventually"
+    if days < 1:
+        return "the same day"
+    if days < 1.5:
+        return "within a day"
+    return f"within about {round(days)} days"
 
 
 def suggest_next_step(row):
@@ -124,13 +136,13 @@ def suggest_next_step(row):
     if next_step and precedent:
         return NEXT_STEP_TEMPLATES["next_step_and_precedent"].format(
             next_step=next_step,
-            precedent_response_days=precedent.get("days_to_next_response"),
+            response_time_phrase=_response_time_phrase(precedent.get("days_to_next_response")),
         )
     if next_step:
         return NEXT_STEP_TEMPLATES["next_step_only"].format(next_step=next_step)
     if precedent:
         return NEXT_STEP_TEMPLATES["precedent_only"].format(
-            precedent_response_days=precedent.get("days_to_next_response"),
+            response_time_phrase=_response_time_phrase(precedent.get("days_to_next_response")),
         )
     return None
 
