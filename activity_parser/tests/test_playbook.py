@@ -1,4 +1,4 @@
-from playbook import compose_starting_draft, match_plays, suggest_next_step
+from playbook import compose_starting_draft, match_plays, next_step_display, suggest_next_step
 
 
 class TestMatchPlays:
@@ -114,3 +114,50 @@ class TestSuggestNextStep:
         }
         sentence = suggest_next_step(row)
         assert "?d ago" in sentence
+
+
+class TestNextStepDisplay:
+    def test_on_pace_shows_raw_note(self):
+        row = {
+            "actionable_status": "on_pace",
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {"days_since_last_touch": 10},
+        }
+        result = next_step_display(row)
+        assert result == {"mode": "raw", "text": "confirm budget by June"}
+
+    def test_on_pace_with_no_next_step_shows_nothing(self):
+        row = {"actionable_status": "on_pace", "opportunity_status": None, "examples": [], "staleness": {}}
+        assert next_step_display(row) == {"mode": "none", "text": None}
+
+    def test_cooling_off_shows_blended_not_raw(self):
+        row = {
+            "actionable_status": "cooling_off",
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [{"account": "Geron", "revival_subject": "Re: reconnect", "days_to_next_response": 6.0}],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        result = next_step_display(row)
+        assert result["mode"] == "blended"
+        assert "confirm budget by June" in result["text"]
+        assert "Geron" in result["text"]
+
+    def test_stalled_shows_blended_not_raw(self):
+        row = {
+            "actionable_status": "stalled",
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        result = next_step_display(row)
+        assert result["mode"] == "blended"
+
+    def test_other_statuses_show_nothing(self):
+        row = {
+            "actionable_status": "insufficient_history",
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {},
+        }
+        assert next_step_display(row) == {"mode": "none", "text": None}

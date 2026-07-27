@@ -31,11 +31,13 @@ the rep's own Next Step note is a snapshot from whenever they last touched
 the account, so showing it alone can read as current advice when it's
 actually stale. This pairs it with the closest closed-won precedent using
 a fixed, editable sentence template (see NEXT_STEP_TEMPLATES) — never
-generated prose — and is meant to sit ALONGSIDE the raw note, not replace
-it.
+generated prose. next_step_display() decides, per account, whether the
+raw note is still trustworthy on its own (on_pace) or should be shown as
+the blended sentence instead (cooling_off/stalled) — not both, since the
+blended sentence already quotes the raw note verbatim.
 
 Usage:
-    from playbook import match_plays, compose_starting_draft, suggest_next_step
+    from playbook import match_plays, compose_starting_draft, suggest_next_step, next_step_display
 """
 
 PLAYS = [
@@ -106,9 +108,9 @@ def suggest_next_step(row):
     subject line and reply time. The rep's note is a snapshot from
     whenever they last touched the account, so on its own it can read as
     current advice when it's actually old — this pairs it with real
-    precedent rather than replacing it, and is meant to be shown ALONGSIDE
-    the raw Next Step note, not instead of it, so nothing real is hidden
-    behind a summary.
+    precedent rather than replacing it. It quotes the raw next step
+    verbatim inside the sentence, so nothing real is lost even when this
+    replaces the raw note in the UI (see next_step_display()).
 
     Deliberately NOT generated prose: only the fixed sentence shapes in
     NEXT_STEP_TEMPLATES are used, and every blank is a real field pulled
@@ -141,6 +143,34 @@ def suggest_next_step(row):
             precedent_response_days=precedent.get("days_to_next_response"),
         )
     return None
+
+
+def next_step_display(row):
+    """Decides which next-step material is actually worth showing, based on
+    how stale the rep's own note is likely to be:
+
+      - "on_pace": the account is being touched on its own normal rhythm,
+        so the rep's raw note is still probably current — show it as-is.
+      - "cooling_off" / "stalled": the note is a snapshot from whenever the
+        account was last touched, which by definition is longer ago than
+        normal — show the blended one-sentence version instead. That
+        sentence already quotes the raw note verbatim, so showing both
+        would just repeat the same text twice.
+      - anything else: no next-step material to show.
+
+    Returns {"mode": "raw" | "blended" | "none", "text": str | None}."""
+    status = row.get("actionable_status")
+    opp_status = row.get("opportunity_status") or {}
+    next_step = (opp_status.get("open_next_steps") or [None])[0]
+
+    if status == "on_pace":
+        return {"mode": "raw", "text": next_step} if next_step else {"mode": "none", "text": None}
+
+    if status in ("cooling_off", "stalled"):
+        blended = suggest_next_step(row)
+        return {"mode": "blended", "text": blended} if blended else {"mode": "none", "text": None}
+
+    return {"mode": "none", "text": None}
 
 
 def compose_starting_draft(row):
