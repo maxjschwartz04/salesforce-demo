@@ -37,6 +37,19 @@ class TestAssessStaleness:
         assert result["typical_gap_days"] == 5.0
         assert result["threshold_days"] == 15.0
 
+    def test_cooling_off_between_cooling_and_stalled_thresholds(self):
+        # typical gap 5 -> cooling threshold 7.5, stalled threshold 15.
+        # 10 days since last touch sits between the two.
+        records = [
+            record("1/1/2026, 12:00 PM"),
+            record("1/6/2026, 12:00 PM"),
+            record("1/11/2026, 12:00 PM"),
+        ]
+        result = assess_staleness(records, as_of=date(2026, 1, 21))
+        assert result["status"] == "cooling_off"
+        assert result["cooling_threshold_days"] == 7.5
+        assert result["threshold_days"] == 15.0
+
     def test_stalled_when_silence_exceeds_threshold(self):
         records = [
             record("1/1/2026, 12:00 PM"),
@@ -90,6 +103,15 @@ class TestFormatStalenessSummary:
         summary = format_staleness_summary(result, account_name="McKee")
         assert summary.startswith("McKee:")
         assert "STALLED" in summary
+
+    def test_cooling_off_flag(self):
+        result = {
+            "status": "cooling_off",
+            "typical_gap_days": 5.0,
+            "days_since_last_touch": 10,
+            "threshold_days": 15.0,
+        }
+        assert "COOLING OFF" in format_staleness_summary(result)
 
     def test_on_pace_flag(self):
         result = {

@@ -20,6 +20,7 @@ import argparse
 import json
 import sys
 
+from activity_feed import build_activity_feed
 from campaign_parser import get_recent_engagements
 from opportunity_parser import find_account_status
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
@@ -30,18 +31,31 @@ from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, sug
 # Arbitrary but reasonable: about a typical outreach cycle.
 NURTURE_LOOKBACK_TOUCHES = 5
 
-# "closed_not_actionable" sorts last: pure gap math said "stalled," but a
-# cross-check against real Opportunity data confirmed the account has no
-# open deal — it's quiet because it's over, not because it needs a rep.
-STATUS_SORT_PRIORITY = {"stalled": 0, "on_pace": 1, "insufficient_history": 2, "no_activity": 3, "closed_not_actionable": 4}
+# "closed_not_actionable" sorts last: pure gap math said "stalled" or
+# "cooling_off," but a cross-check against real Opportunity data confirmed
+# the account has no open deal — it's quiet because it's over, not because
+# it needs a rep.
+STATUS_SORT_PRIORITY = {
+    "stalled": 0,
+    "cooling_off": 1,
+    "on_pace": 2,
+    "insufficient_history": 3,
+    "no_activity": 4,
+    "closed_not_actionable": 5,
+}
 
 
 def _actionable_status(staleness_status, opportunity_status):
     """staleness_status is the pure gap-math verdict from assess_staleness —
     left untouched for auditability. This derives what a rep should actually
-    see: a "stalled" account whose only known Opportunities are all closed
-    isn't something to act on, regardless of how the gap math reads."""
-    if staleness_status == "stalled" and opportunity_status is not None and not opportunity_status["has_open_opportunity"]:
+    see: a "stalled" or "cooling_off" account whose only known Opportunities
+    are all closed isn't something to act on, regardless of how the gap math
+    reads."""
+    if (
+        staleness_status in ("stalled", "cooling_off")
+        and opportunity_status is not None
+        and not opportunity_status["has_open_opportunity"]
+    ):
         return "closed_not_actionable"
     return staleness_status
 
@@ -143,6 +157,7 @@ def run_tracker(
                 "opportunity_status": opportunity_status,
                 "actionable_status": actionable_status,
                 "recent_engagements": recent_engagements,
+                "activity_feed": build_activity_feed(records),
             }
         )
 

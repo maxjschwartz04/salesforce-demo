@@ -28,6 +28,13 @@ MIN_ENGAGEMENT_DAYS = 3
 # which is a much stronger, less noisy signal that something changed.
 STALLED_MULTIPLIER = 3
 
+# Below the stalled threshold but still running longer than usual: a softer,
+# earlier signal than "stalled" so an account doesn't jump straight from
+# "on pace" to "needs attention" with no warning in between. 1.5x is closer
+# to STALLED_MULTIPLIER than to on-pace on purpose — this is meant to flag
+# "starting to drift," not "any silence at all."
+COOLING_MULTIPLIER = 1.5
+
 
 def _engagement_days(records):
     """Collapse activity timestamps down to one entry per calendar day.
@@ -59,7 +66,9 @@ def assess_staleness(records, as_of=None):
         days_since_last_touch - whole days since the most recent activity
         last_touch_date       - ISO date of the most recent activity, or None
         threshold_days         - the silence threshold that trips "stalled", or None
-        status                 - "stalled" | "on_pace" | "insufficient_history" | "no_activity"
+        cooling_threshold_days - the (lower) silence threshold that trips
+                                 "cooling_off", or None
+        status                 - "stalled" | "cooling_off" | "on_pace" | "insufficient_history" | "no_activity"
     """
     if as_of is None:
         as_of = date.today()
@@ -73,6 +82,7 @@ def assess_staleness(records, as_of=None):
             "days_since_last_touch": None,
             "last_touch_date": None,
             "threshold_days": None,
+            "cooling_threshold_days": None,
             "status": "no_activity",
         }
 
@@ -85,19 +95,28 @@ def assess_staleness(records, as_of=None):
             "days_since_last_touch": days_since_last_touch,
             "last_touch_date": last_touch.isoformat(),
             "threshold_days": None,
+            "cooling_threshold_days": None,
             "status": "insufficient_history",
         }
 
     gaps = [(engagement_days[i + 1] - engagement_days[i]).days for i in range(len(engagement_days) - 1)]
     typical_gap_days = statistics.median(gaps)
     threshold_days = typical_gap_days * STALLED_MULTIPLIER
-    status = "stalled" if days_since_last_touch > threshold_days else "on_pace"
+    cooling_threshold_days = typical_gap_days * COOLING_MULTIPLIER
+
+    if days_since_last_touch > threshold_days:
+        status = "stalled"
+    elif days_since_last_touch > cooling_threshold_days:
+        status = "cooling_off"
+    else:
+        status = "on_pace"
 
     return {
         "typical_gap_days": typical_gap_days,
         "days_since_last_touch": days_since_last_touch,
         "last_touch_date": last_touch.isoformat(),
         "threshold_days": threshold_days,
+        "cooling_threshold_days": cooling_threshold_days,
         "status": status,
     }
 
@@ -114,7 +133,7 @@ def format_staleness_summary(assessment, account_name=None):
             f"(last touch {assessment['days_since_last_touch']} days ago)."
         )
 
-    flag = "STALLED" if assessment["status"] == "stalled" else "ON PACE"
+    flag = {"stalled": "STALLED", "cooling_off": "COOLING OFF"}.get(assessment["status"], "ON PACE")
     return (
         f"{label}typical gap {assessment['typical_gap_days']:.1f} days | "
         f"last touch {assessment['days_since_last_touch']} days ago "

@@ -25,6 +25,14 @@ class TestActionableStatus:
     def test_insufficient_history_passes_through(self):
         assert _actionable_status("insufficient_history", None) == "insufficient_history"
 
+    def test_cooling_off_with_open_opportunity_stays_cooling_off(self):
+        opp_status = {"has_open_opportunity": True}
+        assert _actionable_status("cooling_off", opp_status) == "cooling_off"
+
+    def test_cooling_off_with_all_closed_opportunities_becomes_not_actionable(self):
+        opp_status = {"has_open_opportunity": False}
+        assert _actionable_status("cooling_off", opp_status) == "closed_not_actionable"
+
 
 class TestCheckRecentSenderMix:
     def _record(self, date, assigned_to):
