@@ -33,6 +33,14 @@ class TestActionableStatus:
         opp_status = {"has_open_opportunity": False}
         assert _actionable_status("cooling_off", opp_status) == "closed_not_actionable"
 
+    def test_dormant_with_open_opportunity_stays_dormant(self):
+        opp_status = {"has_open_opportunity": True}
+        assert _actionable_status("dormant", opp_status) == "dormant"
+
+    def test_dormant_with_all_closed_opportunities_becomes_not_actionable(self):
+        opp_status = {"has_open_opportunity": False}
+        assert _actionable_status("dormant", opp_status) == "closed_not_actionable"
+
 
 class TestCheckRecentSenderMix:
     def _record(self, date, assigned_to):

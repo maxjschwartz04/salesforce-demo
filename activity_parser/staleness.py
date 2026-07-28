@@ -35,6 +35,17 @@ STALLED_MULTIPLIER = 3
 # "starting to drift," not "any silence at all."
 COOLING_MULTIPLIER = 1.5
 
+# Flat backstop, independent of the account's own rhythm: once total silence
+# crosses this many days, flag it regardless of how slow-paced the account
+# normally is. The multiplier-based thresholds above are all *relative* to
+# the account's own typical gap, so a naturally slow-cadence account (e.g.
+# one historically touched once a year) could go silent forever and never
+# trip "stalled." This catches that case, and also doubles as a distinct
+# "gone quiet a long time ago" signal within the stalled population, since
+# "just went quiet last month" and "silent for two years" both landing in
+# the same bucket isn't a useful distinction for a rep to act on.
+DORMANT_DAYS = 365
+
 
 def _engagement_days(records):
     """Collapse activity timestamps down to one entry per calendar day.
@@ -68,7 +79,8 @@ def assess_staleness(records, as_of=None):
         threshold_days         - the silence threshold that trips "stalled", or None
         cooling_threshold_days - the (lower) silence threshold that trips
                                  "cooling_off", or None
-        status                 - "stalled" | "cooling_off" | "on_pace" | "insufficient_history" | "no_activity"
+        status                 - "dormant" | "stalled" | "cooling_off" | "on_pace" |
+                                 "insufficient_history" | "no_activity"
     """
     if as_of is None:
         as_of = date.today()
@@ -90,13 +102,18 @@ def assess_staleness(records, as_of=None):
     days_since_last_touch = (as_of - last_touch).days
 
     if len(engagement_days) < MIN_ENGAGEMENT_DAYS:
+        # Not enough history to trust a median gap, but the flat DORMANT_DAYS
+        # backstop doesn't depend on one — a sparsely-logged account that's
+        # been silent over a year is still worth flagging as dormant rather
+        # than left in an unresolved "insufficient_history" limbo forever.
+        status = "dormant" if days_since_last_touch > DORMANT_DAYS else "insufficient_history"
         return {
             "typical_gap_days": None,
             "days_since_last_touch": days_since_last_touch,
             "last_touch_date": last_touch.isoformat(),
             "threshold_days": None,
             "cooling_threshold_days": None,
-            "status": "insufficient_history",
+            "status": status,
         }
 
     gaps = [(engagement_days[i + 1] - engagement_days[i]).days for i in range(len(engagement_days) - 1)]
@@ -104,7 +121,9 @@ def assess_staleness(records, as_of=None):
     threshold_days = typical_gap_days * STALLED_MULTIPLIER
     cooling_threshold_days = typical_gap_days * COOLING_MULTIPLIER
 
-    if days_since_last_touch > threshold_days:
+    if days_since_last_touch > DORMANT_DAYS:
+        status = "dormant"
+    elif days_since_last_touch > threshold_days:
         status = "stalled"
     elif days_since_last_touch > cooling_threshold_days:
         status = "cooling_off"
@@ -133,7 +152,15 @@ def format_staleness_summary(assessment, account_name=None):
             f"(last touch {assessment['days_since_last_touch']} days ago)."
         )
 
-    flag = {"stalled": "STALLED", "cooling_off": "COOLING OFF"}.get(assessment["status"], "ON PACE")
+    if assessment["status"] == "dormant" and assessment["typical_gap_days"] is None:
+        return (
+            f"{label}not enough history to establish a normal rhythm, but silent for "
+            f"{assessment['days_since_last_touch']} days ({DORMANT_DAYS}+ day backstop) — DORMANT."
+        )
+
+    flag = {"stalled": "STALLED", "cooling_off": "COOLING OFF", "dormant": "DORMANT"}.get(
+        assessment["status"], "ON PACE"
+    )
     return (
         f"{label}typical gap {assessment['typical_gap_days']:.1f} days | "
         f"last touch {assessment['days_since_last_touch']} days ago "

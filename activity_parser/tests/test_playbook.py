@@ -169,6 +169,16 @@ class TestNextStepDisplay:
         result = next_step_display(row)
         assert result["mode"] == "blended"
 
+    def test_dormant_shows_blended_not_raw(self):
+        row = {
+            "actionable_status": "dormant",
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {"days_since_last_touch": 400},
+        }
+        result = next_step_display(row)
+        assert result["mode"] == "blended"
+
     def test_other_statuses_show_nothing(self):
         row = {
             "actionable_status": "insufficient_history",

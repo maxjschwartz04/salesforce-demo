@@ -31,28 +31,32 @@ from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, sug
 # Arbitrary but reasonable: about a typical outreach cycle.
 NURTURE_LOOKBACK_TOUCHES = 5
 
-# "closed_not_actionable" sorts last: pure gap math said "stalled" or
-# "cooling_off," but a cross-check against real Opportunity data confirmed
-# the account has no open deal — it's quiet because it's over, not because
-# it needs a rep.
+# "closed_not_actionable" sorts last: pure gap math said "stalled,"
+# "cooling_off," or "dormant," but a cross-check against real Opportunity
+# data confirmed the account has no open deal — it's quiet because it's
+# over, not because it needs a rep. "dormant" (silent past the flat
+# DORMANT_DAYS backstop — see staleness.py) sorts below "stalled" and
+# "cooling_off": still worth a rep's attention, but a long-buried account is
+# less urgent than one that only recently went quiet.
 STATUS_SORT_PRIORITY = {
     "stalled": 0,
     "cooling_off": 1,
-    "on_pace": 2,
-    "insufficient_history": 3,
-    "no_activity": 4,
-    "closed_not_actionable": 5,
+    "dormant": 2,
+    "on_pace": 3,
+    "insufficient_history": 4,
+    "no_activity": 5,
+    "closed_not_actionable": 6,
 }
 
 
 def _actionable_status(staleness_status, opportunity_status):
     """staleness_status is the pure gap-math verdict from assess_staleness —
     left untouched for auditability. This derives what a rep should actually
-    see: a "stalled" or "cooling_off" account whose only known Opportunities
-    are all closed isn't something to act on, regardless of how the gap math
-    reads."""
+    see: a "stalled," "cooling_off," or "dormant" account whose only known
+    Opportunities are all closed isn't something to act on, regardless of
+    how the gap math reads."""
     if (
-        staleness_status in ("stalled", "cooling_off")
+        staleness_status in ("stalled", "cooling_off", "dormant")
         and opportunity_status is not None
         and not opportunity_status["has_open_opportunity"]
     ):
@@ -152,7 +156,9 @@ def run_tracker(
         )
         opportunity_status = find_account_status(account_name, account_status)
         actionable_status = _actionable_status(result["staleness"]["status"], opportunity_status)
-        sender_mix = check_recent_sender_mix(records, nurture_senders) if actionable_status == "stalled" else None
+        sender_mix = (
+            check_recent_sender_mix(records, nurture_senders) if actionable_status in ("stalled", "dormant") else None
+        )
         recent_engagements = get_recent_engagements(account_name, campaign_by_company)
         rows.append(
             {
@@ -172,10 +178,16 @@ def run_tracker(
 
 def format_tracker_report(rows):
     actionable_stalled = [r for r in rows if r["actionable_status"] == "stalled"]
+    actionable_dormant = [r for r in rows if r["actionable_status"] == "dormant"]
     closed_not_actionable = [r for r in rows if r["actionable_status"] == "closed_not_actionable"]
     lines = [
         f"{len(actionable_stalled)} of {len(rows)} tracked accounts are stalled with an open deal.",
     ]
+    if actionable_dormant:
+        lines.append(
+            f"{len(actionable_dormant)} more have gone quiet for over a year (dormant) with an open deal — "
+            f"still worth a look, but lower urgency than the recently-stalled accounts above."
+        )
     if closed_not_actionable:
         lines.append(
             f"({len(closed_not_actionable)} more looked stalled by pure activity-gap math, but their only known "
@@ -192,10 +204,10 @@ def format_tracker_report(rows):
             continue
 
         lines.append(format_suggestions_summary(row["result"], row["account"]))
-        if row["result"]["staleness"]["status"] == "stalled" and row["opportunity_status"] is None:
+        if row["result"]["staleness"]["status"] in ("stalled", "dormant") and row["opportunity_status"] is None:
             lines.append("  Note: no Opportunity-stage data available for this account — not cross-checked against Salesforce.")
 
-        if row["actionable_status"] == "stalled" and row["opportunity_status"]:
+        if row["actionable_status"] in ("stalled", "dormant") and row["opportunity_status"]:
             for next_step in row["opportunity_status"]["open_next_steps"]:
                 lines.append(f'  Rep\'s own last "Next Step" note on the open deal: "{next_step}"')
 

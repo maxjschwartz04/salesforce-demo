@@ -153,11 +153,11 @@ def next_step_display(row):
 
       - "on_pace": the account is being touched on its own normal rhythm,
         so the rep's raw note is still probably current — show it as-is.
-      - "cooling_off" / "stalled": the note is a snapshot from whenever the
-        account was last touched, which by definition is longer ago than
-        normal — show the blended one-sentence version instead. That
-        sentence already quotes the raw note verbatim, so showing both
-        would just repeat the same text twice.
+      - "cooling_off" / "stalled" / "dormant": the note is a snapshot from
+        whenever the account was last touched, which by definition is
+        longer ago than normal — show the blended one-sentence version
+        instead. That sentence already quotes the raw note verbatim, so
+        showing both would just repeat the same text twice.
       - anything else: no next-step material to show.
 
     Returns {"mode": "raw" | "blended" | "none", "text": str | None}."""
@@ -168,7 +168,7 @@ def next_step_display(row):
     if status == "on_pace":
         return {"mode": "raw", "text": next_step} if next_step else {"mode": "none", "text": None}
 
-    if status in ("cooling_off", "stalled"):
+    if status in ("cooling_off", "stalled", "dormant"):
         blended = suggest_next_step(row)
         return {"mode": "blended", "text": blended} if blended else {"mode": "none", "text": None}
 

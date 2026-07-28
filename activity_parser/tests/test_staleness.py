@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from staleness import assess_staleness, format_staleness_summary
 
@@ -83,6 +83,41 @@ class TestAssessStaleness:
         result = assess_staleness(records, as_of=datetime(2026, 1, 5, 8, 30))
         assert result["last_touch_date"] == "2026-01-01"
 
+    def test_dormant_when_extremely_stale_on_a_normal_rhythm(self):
+        # Same 5-day-rhythm records as test_stalled_when_silence_exceeds_threshold,
+        # but pushed well past the DORMANT_DAYS flat backstop — "recently
+        # stalled" and "silent for well over a year" shouldn't read the same.
+        records = [
+            record("1/1/2026, 12:00 PM"),
+            record("1/6/2026, 12:00 PM"),
+            record("1/11/2026, 12:00 PM"),
+        ]
+        result = assess_staleness(records, as_of=date(2027, 2, 1))  # 386 days since last touch
+        assert result["status"] == "dormant"
+
+    def test_dormant_overrides_relative_math_via_flat_backstop(self):
+        # A naturally slow cadence (~200-day gap) means relative math alone
+        # would only call 400 days of silence "cooling_off" (its own
+        # "stalled" threshold would be 600 days) -- but the flat 365-day
+        # backstop means a slow-cadence account can't hide behind its own
+        # rhythm forever.
+        start = date(2024, 1, 1)
+        touches = [start, start + timedelta(days=200), start + timedelta(days=400)]
+        records = [record(d.strftime("%m/%d/%Y") + ", 12:00 PM") for d in touches]
+        as_of = touches[-1] + timedelta(days=400)
+        result = assess_staleness(records, as_of=as_of)
+        assert result["typical_gap_days"] == 200.0
+        assert result["status"] == "dormant"
+
+    def test_dormant_overrides_insufficient_history_via_flat_backstop(self):
+        # Too few engagement days to trust a median gap, but the flat
+        # backstop doesn't need one -- a sparse account silent for two years
+        # shouldn't sit in "insufficient_history" limbo forever.
+        records = [record("1/1/2024, 12:00 PM"), record("1/2/2024, 12:00 PM")]
+        result = assess_staleness(records, as_of=date(2026, 1, 1))
+        assert result["status"] == "dormant"
+        assert result["typical_gap_days"] is None
+
 
 class TestFormatStalenessSummary:
     def test_no_activity_message(self):
@@ -121,3 +156,18 @@ class TestFormatStalenessSummary:
             "threshold_days": 15.0,
         }
         assert "ON PACE" in format_staleness_summary(result)
+
+    def test_dormant_flag(self):
+        result = {
+            "status": "dormant",
+            "typical_gap_days": 5.0,
+            "days_since_last_touch": 400,
+            "threshold_days": 15.0,
+        }
+        assert "DORMANT" in format_staleness_summary(result)
+
+    def test_dormant_message_without_established_rhythm(self):
+        result = {"status": "dormant", "typical_gap_days": None, "days_since_last_touch": 500}
+        summary = format_staleness_summary(result)
+        assert "not enough history" in summary
+        assert "DORMANT" in summary
