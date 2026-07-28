@@ -1,3 +1,4 @@
+from parser import filter_and_sort_activities
 from revival_library import find_revival_moments
 
 
@@ -44,40 +45,44 @@ class TestFindRevivalMoments:
         records = baseline_records() + [email_record("1/26/2026, 12:00 PM", "Email F")]
         assert find_revival_moments(records) == []
 
-    def test_excludes_billing_invoice_noise(self):
+    def test_excludes_billing_invoice_noise_via_upstream_filter(self):
+        # Noise exclusion now lives in parser.filter_and_sort_activities,
+        # not here -- this checks the real end-to-end composition (both
+        # build_revival_library and tracker.py always filter first) rather
+        # than duplicating the pattern-matching logic in this module too.
         records = baseline_records() + [
             email_record("3/1/2026, 12:00 PM", "Email: Overdue Invoice SIN048316"),
             email_record("3/3/2026, 12:00 PM", "Email: RE"),
         ]
-        assert find_revival_moments(records) == []
+        assert find_revival_moments(filter_and_sort_activities(records)) == []
 
-    def test_excludes_auto_reply_noise(self):
+    def test_excludes_auto_reply_noise_via_upstream_filter(self):
         records = baseline_records() + [
             email_record("3/1/2026, 12:00 PM", "Email: Automatic reply: out of office"),
             email_record("3/3/2026, 12:00 PM", "Email: RE"),
         ]
-        assert find_revival_moments(records) == []
+        assert find_revival_moments(filter_and_sort_activities(records)) == []
 
-    def test_excludes_pro_briefing_noise(self):
+    def test_excludes_pro_briefing_noise_via_upstream_filter(self):
         records = baseline_records() + [
             email_record("3/1/2026, 12:00 PM", "Email: 3.11 Pro Briefing: Biden's Climate Plan"),
             email_record("3/3/2026, 12:00 PM", "Email: RE"),
         ]
-        assert find_revival_moments(records) == []
+        assert find_revival_moments(filter_and_sort_activities(records)) == []
 
-    def test_excludes_pro_summit_noise(self):
+    def test_excludes_pro_summit_noise_via_upstream_filter(self):
         records = baseline_records() + [
             email_record("3/1/2026, 12:00 PM", "Email: Invitation to our Pro Summit"),
             email_record("3/3/2026, 12:00 PM", "Email: RE"),
         ]
-        assert find_revival_moments(records) == []
+        assert find_revival_moments(filter_and_sort_activities(records)) == []
 
-    def test_excludes_pro_renewal_noise(self):
+    def test_excludes_pro_renewal_noise_via_upstream_filter(self):
         records = baseline_records() + [
             email_record("3/1/2026, 12:00 PM", "Email: RE: Upcoming Pro renewal - preferred rates"),
             email_record("3/3/2026, 12:00 PM", "Email: RE"),
         ]
-        assert find_revival_moments(records) == []
+        assert find_revival_moments(filter_and_sort_activities(records)) == []
 
     def test_excludes_revival_broken_by_task_note_not_email(self):
         records = baseline_records() + [

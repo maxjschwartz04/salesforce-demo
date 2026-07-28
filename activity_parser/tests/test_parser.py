@@ -148,6 +148,30 @@ class TestFilterAndSortActivities:
         result = filter_and_sort_activities(records)
         assert result[0]["subject"] == "Undated"
 
+    def test_removes_pro_briefing_noise(self):
+        # These don't carry the exact "POLITICO Pro" phrase or a PRO.-
+        # prefixed related_to, so they need their own pattern -- confirmed
+        # against real data: 4 contaminated revival moments on Kraft Heinz
+        # Foods Company alone before this pattern existed.
+        records = [self._record(subject="Email: 3.11 Pro Briefing: Biden's Climate Plan")]
+        assert filter_and_sort_activities(records) == []
+
+    def test_removes_pro_summit_noise(self):
+        records = [self._record(subject="Email: Invitation to our Pro Summit")]
+        assert filter_and_sort_activities(records) == []
+
+    def test_removes_pro_renewal_noise(self):
+        records = [self._record(subject="Email: RE: Upcoming Pro renewal - preferred rates")]
+        assert filter_and_sort_activities(records) == []
+
+    def test_removes_billing_invoice_noise(self):
+        records = [self._record(subject="Email: First Reminder: Politico Overdue Invoice SIN048316")]
+        assert filter_and_sort_activities(records) == []
+
+    def test_removes_auto_reply_noise(self):
+        records = [self._record(subject="Email: Automatic reply: out of office")]
+        assert filter_and_sort_activities(records) == []
+
 
 class TestParseLastModifiedDate:
     def test_valid_format(self):

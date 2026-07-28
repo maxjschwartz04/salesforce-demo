@@ -49,6 +49,26 @@ EMAIL_BODY_PATTERN = re.compile(r"^Body:[ \t]*\n?(.*)\Z", re.MULTILINE | re.DOTA
 # contact with "Pro" in its name should never get swept up as noise.
 PRO_NOISE_PATTERN = re.compile(r"\bpolitico\s+pro\b", re.IGNORECASE)
 
+# POLITICO Pro subscription/content threads ("Pro Briefing," "Pro Summit,"
+# "Pro renewal") don't carry the exact "POLITICO Pro" phrase and don't
+# always have a PRO.-prefixed related_to either, so they slip past
+# PRO_NOISE_PATTERN and can otherwise land in the data as if they were real
+# AgencyIQ sales engagement. Confirmed against real data before adding this:
+# 5 already-contaminated revival moments existed for Kraft Heinz Foods
+# Company alone (4 "Pro Briefing" + 1 "Pro renewal") before this was added.
+PRO_SUBSCRIPTION_NOISE_PATTERN = re.compile(r"\bpro (briefing|summit|renewal)\b", re.IGNORECASE)
+
+# Billing/AR emails ("First Reminder: Politico Overdue Invoice SIN048316")
+# get logged as activities too, and can land right after a long gap purely
+# by accounting coincidence — that's not a rep or the account engaging,
+# it's automated back-office correspondence.
+BILLING_NOISE_PATTERN = re.compile(r"\binvoic\w*\b|\boverdue\b", re.IGNORECASE)
+
+# An out-of-office autoresponder logged as an activity isn't the account
+# engaging either — it's just a bounce. Same shape of problem as billing
+# noise: automated, not a real touch by either side.
+AUTO_REPLY_NOISE_PATTERN = re.compile(r"\bautomatic reply\b", re.IGNORECASE)
+
 
 def extract_html_from_mhtml(path):
     """Extract the raw HTML document out of a .mhtml MIME archive."""
@@ -159,7 +179,15 @@ def parse_last_modified_date(raw):
         return None
 
 
-def _is_pro_noise(record):
+def _is_noise(record):
+    """True if this record isn't real sales engagement by either side --
+    POLITICO Pro subscription content, billing/AR correspondence, or an
+    autoresponder bounce. This is the ONE place that decision gets made:
+    everything downstream (staleness gap math, revival-moment matching)
+    trusts that whatever it's handed has already cleared this bar, rather
+    than each place re-implementing its own version of "is this noise" and
+    risking exactly the kind of drift that happens when the same rule
+    exists in two places and only one of them gets updated."""
     subject = record.get("subject") or ""
     related_to = record.get("related_to") or ""
     if PRO_NOISE_PATTERN.search(subject) or PRO_NOISE_PATTERN.search(related_to):
@@ -168,14 +196,24 @@ def _is_pro_noise(record):
     # account-management record itself (renewals, walkthroughs), not an
     # AgencyIQ sales opportunity — noise even when the subject doesn't
     # literally say "POLITICO Pro".
-    return related_to.upper().startswith("PRO.")
+    if related_to.upper().startswith("PRO."):
+        return True
+    if PRO_SUBSCRIPTION_NOISE_PATTERN.search(subject):
+        return True
+    if BILLING_NOISE_PATTERN.search(subject):
+        return True
+    if AUTO_REPLY_NOISE_PATTERN.search(subject):
+        return True
+    return False
 
 
 def filter_and_sort_activities(records):
-    """Drop POLITICO Pro noise (subscription/renewal/access activities that
-    aren't sales engagement) and return the rest sorted oldest -> newest by
-    Last Modified Date. Records with an unparseable/missing date sort first."""
-    sales_records = [r for r in records if not _is_pro_noise(r)]
+    """Drop noise that isn't real sales engagement by either side (POLITICO
+    Pro subscription/renewal/access content, billing/AR correspondence,
+    autoresponder bounces) and return the rest sorted oldest -> newest by
+    Last Modified Date. Records with an unparseable/missing date sort
+    first."""
+    sales_records = [r for r in records if not _is_noise(r)]
     sales_records.sort(key=lambda r: parse_last_modified_date(r.get("last_modified_date")) or datetime.min)
     return sales_records
 
