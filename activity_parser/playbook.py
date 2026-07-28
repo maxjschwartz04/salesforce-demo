@@ -33,11 +33,14 @@ generated prose (see NEXT_STEP_TEMPLATES). It deliberately does NOT cite
 the precedent's response time inline; that comparison already has its own
 dedicated spot elsewhere on the same screen (the closest revival
 example's account/subject/response-time), so repeating it here would just
-say the same thing twice. next_step_display() decides, per account,
-whether the raw note is still trustworthy on its own (on_pace) or should
-be shown as the blended sentence instead (cooling_off/stalled/dormant) —
-not both, since the blended sentence already quotes the raw note
-verbatim.
+say the same thing twice. next_step_display() decides, per account, which
+of three things to show: the raw note as-is where it's still trustworthy
+(on_pace, and never_engaged if a plan happens to exist), the blended
+sentence above where a relationship went quiet (cooling_off/stalled/
+dormant), or a distinct first-outreach prompt where there was never a
+relationship to begin with (never_engaged with no logged plan) — never
+more than one of the three, since the blended sentence already quotes the
+raw note verbatim.
 
 Usage:
     from playbook import match_plays, compose_starting_draft, suggest_next_step, next_step_display

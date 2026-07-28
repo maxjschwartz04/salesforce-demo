@@ -112,6 +112,7 @@ def assess_staleness(records, as_of=None):
 
     last_touch = engagement_days[-1]
     days_since_last_touch = (as_of - last_touch).days
+    typical_gap_days = threshold_days = cooling_threshold_days = None
 
     if len(engagement_days) < MIN_ENGAGEMENT_DAYS:
         # Not enough history to trust a median gap. Three possible verdicts,
@@ -130,28 +131,20 @@ def assess_staleness(records, as_of=None):
             status = "never_engaged"
         else:
             status = "new"
-        return {
-            "typical_gap_days": None,
-            "days_since_last_touch": days_since_last_touch,
-            "last_touch_date": last_touch.isoformat(),
-            "threshold_days": None,
-            "cooling_threshold_days": None,
-            "status": status,
-        }
-
-    gaps = [(engagement_days[i + 1] - engagement_days[i]).days for i in range(len(engagement_days) - 1)]
-    typical_gap_days = statistics.median(gaps)
-    threshold_days = typical_gap_days * STALLED_MULTIPLIER
-    cooling_threshold_days = typical_gap_days * COOLING_MULTIPLIER
-
-    if days_since_last_touch > DORMANT_DAYS:
-        status = "dormant"
-    elif days_since_last_touch > threshold_days:
-        status = "stalled"
-    elif days_since_last_touch > cooling_threshold_days:
-        status = "cooling_off"
     else:
-        status = "on_pace"
+        gaps = [(engagement_days[i + 1] - engagement_days[i]).days for i in range(len(engagement_days) - 1)]
+        typical_gap_days = statistics.median(gaps)
+        threshold_days = typical_gap_days * STALLED_MULTIPLIER
+        cooling_threshold_days = typical_gap_days * COOLING_MULTIPLIER
+
+        if days_since_last_touch > DORMANT_DAYS:
+            status = "dormant"
+        elif days_since_last_touch > threshold_days:
+            status = "stalled"
+        elif days_since_last_touch > cooling_threshold_days:
+            status = "cooling_off"
+        else:
+            status = "on_pace"
 
     return {
         "typical_gap_days": typical_gap_days,
