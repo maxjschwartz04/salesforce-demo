@@ -89,6 +89,20 @@ class TestSuggestNextStep:
         assert "Geron" not in sentence
         assert "Re: reconnect" not in sentence
 
+    def test_precedent_framed_as_one_case_not_a_general_pattern(self):
+        # Regression guard: the precedent is examples[0], the single
+        # closest gap-ratio match -- not an average across many accounts.
+        # "similarly quiet accounts have come back within 6 days" overstates
+        # one data point as a repeatable pattern; must read as one example.
+        row = {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [self._precedent()],
+            "staleness": {"days_since_last_touch": 90},
+        }
+        sentence = suggest_next_step(row)
+        assert "similarly quiet accounts" not in sentence
+        assert "one comparable case" in sentence
+
     def test_next_step_only_when_no_precedent(self):
         row = {
             "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
@@ -146,6 +160,13 @@ class TestSuggestNextStepMarketingEngagement:
         sentence = suggest_next_step(row)
         assert "kept engaging" in sentence
         assert sentence.startswith("confirm budget by June")
+
+    def test_clause_recommends_without_promising_an_outcome(self):
+        # A webinar RSVP isn't proof a personal note will work -- recommend
+        # the action, don't predict the result.
+        row = self._row("2026-01-01", [{"date_group": "2/1/2026 - 2/7/2026"}])
+        sentence = suggest_next_step(row)
+        assert "is likely to land" not in sentence
 
     def test_engagement_before_last_touch_does_not_append_clause(self):
         # They stopped engaging with marketing too, before the last real

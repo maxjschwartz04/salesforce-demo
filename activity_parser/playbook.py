@@ -95,12 +95,20 @@ def match_plays(row):
 # Which shape gets used depends on which real fields actually exist for
 # this account; a blank with nothing real to put in it just isn't filled
 # in, never invented.
+#
+# Deliberately says "one comparable case," not "similarly quiet accounts"
+# (plural). The precedent plugged in here is examples[0] -- the SINGLE
+# closest gap-ratio match in the whole library, not an average or a
+# frequency. Saying "accounts have come back within 6 days" reads like a
+# repeatable pattern; it's one account's one response time that happened
+# to match well on the math. If it were actually that reliable, it
+# wouldn't be a stalled account in the first place. The honest framing is
+# "here's one real data point for calibration," not "here's what usually
+# happens" -- same length, same strong lead recommendation, no overclaim.
 NEXT_STEP_TEMPLATES = {
-    "next_step_and_precedent": (
-        "{next_step} — similarly quiet accounts have come back {response_time_phrase} once someone reached out directly."
-    ),
+    "next_step_and_precedent": ("{next_step} — in one comparable case, that got a reply {response_time_phrase}."),
     "next_step_only": "{next_step}",
-    "precedent_only": ("Reach out directly — similarly quiet accounts have come back {response_time_phrase} once someone did."),
+    "precedent_only": "Reach out directly — in one comparable case, that got a reply {response_time_phrase}.",
 }
 
 # Appended (not blended in as a fill-in blank) when real Campaign Member
@@ -113,8 +121,12 @@ NEXT_STEP_TEMPLATES = {
 # since marketing engagement alone isn't proof the sales relationship is
 # active) -- this only adjusts the TONE of the suggestion for accounts
 # that are warmer than a total absence of any engagement.
+#
+# "is likely to land" was a prediction this data can't back up -- a
+# webinar RSVP says they haven't tuned out entirely, not that a personal
+# note will work. Recommend the action, don't promise the outcome.
 STILL_MARKETING_ENGAGED_CLAUSE = (
-    " They've kept engaging with your webinars and emails in the meantime, so a direct, personal note is likely to land."
+    " They've kept engaging with your webinars and emails, though — worth a personal note instead of another automated touch."
 )
 
 
@@ -153,7 +165,11 @@ def suggest_next_step(row):
     """A one-sentence, template-filled suggestion that leads with the rep's
     own last logged plan and, where a closed-won precedent exists, folds in
     its real response-time as a plain suggestion — not a citation, so the
-    sentence doesn't name which account or email it came from.
+    sentence doesn't name which account or email it came from. Framed as
+    "one comparable case," not "similarly quiet accounts" — the precedent
+    is the single closest gap-ratio match, not an average across many, and
+    saying "accounts have come back in 6 days" would overstate one data
+    point as a repeatable pattern.
 
     Deliberately NOT generated prose: only the fixed sentence shapes in
     NEXT_STEP_TEMPLATES are used, and every blank is a real field pulled
