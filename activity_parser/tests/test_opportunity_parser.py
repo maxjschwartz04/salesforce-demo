@@ -118,6 +118,16 @@ class TestIsProspect:
         # -- don't wrongly exclude a real prospect for lack of data.
         assert is_prospect("Totally Unknown Co", {}) is True
 
+    def test_defunct_account_name_is_not_a_prospect(self):
+        # Same DEFUNCT_ACCOUNT_PATTERN check list_winback_candidates already
+        # applies -- re-engaging a company that's already gone isn't a real
+        # prospect, regardless of what its Opportunity history says.
+        status = {"ACQUIRED - Clif Bar": {"has_closed_won": False}}
+        assert is_prospect("ACQUIRED - Clif Bar", status) is False
+
+    def test_defunct_account_excluded_even_with_no_opportunity_data(self):
+        assert is_prospect("Foo Inc (Merged into Bar Corp)", {}) is False
+
 
 class TestListWinbackCandidates:
     def test_includes_account_whose_most_recent_opp_is_closed_lost(self):

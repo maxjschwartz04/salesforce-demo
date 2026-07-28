@@ -87,15 +87,22 @@ def find_account_status(account_name, account_status):
 
 def is_prospect(account_name, account_status):
     """True if this account is fair game for the new-business tracker —
-    i.e. NOT an existing customer. Explicit scope decision: once an account
-    has ANY Closed Won opportunity on file, it's Account Management's
-    account for good, even if it later has a separate new open deal — this
-    tool is new-business only and doesn't compete with or duplicate AM's
-    outreach.
+    i.e. NOT an existing customer, and not a company that no longer exists
+    independently. Explicit scope decision: once an account has ANY Closed
+    Won opportunity on file, it's Account Management's account for good,
+    even if it later has a separate new open deal — this tool is
+    new-business only and doesn't compete with or duplicate AM's outreach.
+
+    Also excludes accounts flagged acquired/defunct/merged in their own
+    name (same DEFUNCT_ACCOUNT_PATTERN check list_winback_candidates already
+    applies) — re-engaging a company that's already gone isn't a real
+    prospect, regardless of how its Opportunity history reads.
 
     Accounts with no Opportunity data at all are treated as prospects, not
     excluded — no data isn't confirmation they're a customer, and wrongly
     dropping a real prospect is worse than including one account too many."""
+    if DEFUNCT_ACCOUNT_PATTERN.search(account_name):
+        return False
     status = find_account_status(account_name, account_status)
     return status is None or not status["has_closed_won"]
 
