@@ -22,8 +22,18 @@ class TestActionableStatus:
         opp_status = {"has_open_opportunity": False}
         assert _actionable_status("on_pace", opp_status) == "on_pace"
 
-    def test_insufficient_history_passes_through(self):
-        assert _actionable_status("insufficient_history", None) == "insufficient_history"
+    def test_new_passes_through(self):
+        assert _actionable_status("new", None) == "new"
+
+    def test_never_engaged_with_open_opportunity_stays_never_engaged(self):
+        opp_status = {"has_open_opportunity": True}
+        assert _actionable_status("never_engaged", opp_status) == "never_engaged"
+
+    def test_never_engaged_with_all_closed_opportunities_becomes_not_actionable(self):
+        # A lead barely touched at all shouldn't get a "first outreach"
+        # suggestion if there's already a Closed Lost deal on file for it.
+        opp_status = {"has_open_opportunity": False}
+        assert _actionable_status("never_engaged", opp_status) == "closed_not_actionable"
 
     def test_cooling_off_with_open_opportunity_stays_cooling_off(self):
         opp_status = {"has_open_opportunity": True}
@@ -132,3 +142,10 @@ class TestFormatTrackerReportNextStep:
         report = format_tracker_report([row])
         assert "Next Step" not in report
         assert "Suggested next step" not in report
+
+    def test_first_outreach_prompt_is_printed_for_never_engaged(self):
+        row = self._row("never_engaged", {"mode": "first_outreach", "text": "No real conversation on file yet — worth a first outreach."})
+        report = format_tracker_report([row])
+        assert "No real conversation on file yet — worth a first outreach." in report
+        assert "Suggested next step" not in report
+        assert "Rep's own last" not in report

@@ -16,7 +16,8 @@ from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_ac
 
 # Need at least this many distinct days of activity to trust a median gap.
 # Below this, one or two touches don't tell you anything about "normal"
-# rhythm, so we report "insufficient_history" rather than guess.
+# rhythm, so status becomes "new" or "never_engaged" (see NEW_LEAD_GRACE_DAYS)
+# rather than guessing at one.
 MIN_ENGAGEMENT_DAYS = 3
 
 # How many multiples of the account's own typical gap the current silence
@@ -45,6 +46,17 @@ COOLING_MULTIPLIER = 1.5
 # "just went quiet last month" and "silent for two years" both landing in
 # the same bucket isn't a useful distinction for a rep to act on.
 DORMANT_DAYS = 365
+
+# Below MIN_ENGAGEMENT_DAYS there's no rhythm to judge silence against, but
+# that bucket was hiding two very different accounts under one label: one
+# just added with a single recent touch (nothing wrong, just early), and
+# one touched once or twice a while ago and never followed up on (a real,
+# actionable gap -- but a DIFFERENT one than "went quiet," since there was
+# never a relationship to re-engage in the first place). 30 days is one
+# normal follow-up cycle -- most real on-pace accounts here run 10-40 day
+# cadences, so a lead with no second touch inside a month has had enough
+# time for one and didn't get it.
+NEW_LEAD_GRACE_DAYS = 30
 
 
 def _engagement_days(records):
@@ -80,7 +92,7 @@ def assess_staleness(records, as_of=None):
         cooling_threshold_days - the (lower) silence threshold that trips
                                  "cooling_off", or None
         status                 - "dormant" | "stalled" | "cooling_off" | "on_pace" |
-                                 "insufficient_history" | "no_activity"
+                                 "never_engaged" | "new" | "no_activity"
     """
     if as_of is None:
         as_of = date.today()
@@ -102,11 +114,22 @@ def assess_staleness(records, as_of=None):
     days_since_last_touch = (as_of - last_touch).days
 
     if len(engagement_days) < MIN_ENGAGEMENT_DAYS:
-        # Not enough history to trust a median gap, but the flat DORMANT_DAYS
-        # backstop doesn't depend on one — a sparsely-logged account that's
-        # been silent over a year is still worth flagging as dormant rather
-        # than left in an unresolved "insufficient_history" limbo forever.
-        status = "dormant" if days_since_last_touch > DORMANT_DAYS else "insufficient_history"
+        # Not enough history to trust a median gap. Three possible verdicts,
+        # checked in order from most to least stale:
+        #   - past the flat DORMANT_DAYS backstop -> "dormant" (same as the
+        #     established-rhythm case; a sparse account silent over a year
+        #     shouldn't sit in limbo just because it lacks a computed gap)
+        #   - silent longer than one normal follow-up cycle but under a
+        #     year -> "never_engaged": a real, actionable gap, but not the
+        #     same one as "stalled" -- there's no relationship here that
+        #     went quiet, there was never a second touch to begin with
+        #   - otherwise -> "new": too recently touched to have an opinion
+        if days_since_last_touch > DORMANT_DAYS:
+            status = "dormant"
+        elif days_since_last_touch > NEW_LEAD_GRACE_DAYS:
+            status = "never_engaged"
+        else:
+            status = "new"
         return {
             "typical_gap_days": None,
             "days_since_last_touch": days_since_last_touch,
@@ -146,10 +169,16 @@ def format_staleness_summary(assessment, account_name=None):
     if assessment["status"] == "no_activity":
         return f"{label}no dated activity found."
 
-    if assessment["status"] == "insufficient_history":
+    if assessment["status"] == "new":
         return (
-            f"{label}not enough history to establish a normal rhythm "
-            f"(last touch {assessment['days_since_last_touch']} days ago)."
+            f"{label}too new to establish a normal rhythm yet "
+            f"(last touch {assessment['days_since_last_touch']} days ago) — NEW."
+        )
+
+    if assessment["status"] == "never_engaged":
+        return (
+            f"{label}no real conversation established yet "
+            f"(last touch {assessment['days_since_last_touch']} days ago) — NEVER ENGAGED."
         )
 
     if assessment["status"] == "dormant" and assessment["typical_gap_days"] is None:

@@ -33,31 +33,36 @@ from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, sug
 NURTURE_LOOKBACK_TOUCHES = 5
 
 # "closed_not_actionable" sorts last: pure gap math said "stalled,"
-# "cooling_off," or "dormant," but a cross-check against real Opportunity
-# data confirmed the account has no open deal — it's quiet because it's
-# over, not because it needs a rep. "dormant" (silent past the flat
-# DORMANT_DAYS backstop — see staleness.py) sorts below "stalled" and
+# "cooling_off," "dormant," or "never_engaged," but a cross-check against
+# real Opportunity data confirmed the account has no open deal — it's quiet
+# because it's over, not because it needs a rep. "dormant" (silent past the
+# flat DORMANT_DAYS backstop — see staleness.py) sorts below "stalled" and
 # "cooling_off": still worth a rep's attention, but a long-buried account is
-# less urgent than one that only recently went quiet.
+# less urgent than one that only recently went quiet. "never_engaged" (never
+# had a second touch at all — see staleness.py's NEW_LEAD_GRACE_DAYS) sorts
+# below dormant: there's less evidence of real interest here than in an
+# account that at least had a real relationship before it went quiet. "new"
+# sorts below on_pace -- too fresh to have an opinion on, not a concern.
 STATUS_SORT_PRIORITY = {
     "stalled": 0,
     "cooling_off": 1,
     "dormant": 2,
-    "on_pace": 3,
-    "insufficient_history": 4,
-    "no_activity": 5,
-    "closed_not_actionable": 6,
+    "never_engaged": 3,
+    "on_pace": 4,
+    "new": 5,
+    "no_activity": 6,
+    "closed_not_actionable": 7,
 }
 
 
 def _actionable_status(staleness_status, opportunity_status):
     """staleness_status is the pure gap-math verdict from assess_staleness —
     left untouched for auditability. This derives what a rep should actually
-    see: a "stalled," "cooling_off," or "dormant" account whose only known
-    Opportunities are all closed isn't something to act on, regardless of
-    how the gap math reads."""
+    see: a "stalled," "cooling_off," "dormant," or "never_engaged" account
+    whose only known Opportunities are all closed isn't something to act
+    on, regardless of how the gap math reads."""
     if (
-        staleness_status in ("stalled", "cooling_off", "dormant")
+        staleness_status in ("stalled", "cooling_off", "dormant", "never_engaged")
         and opportunity_status is not None
         and not opportunity_status["has_open_opportunity"]
     ):
@@ -164,7 +169,9 @@ def run_tracker(
         opportunity_status = find_account_status(account_name, account_status)
         actionable_status = _actionable_status(result["staleness"]["status"], opportunity_status)
         sender_mix = (
-            check_recent_sender_mix(records, nurture_senders) if actionable_status in ("stalled", "dormant") else None
+            check_recent_sender_mix(records, nurture_senders)
+            if actionable_status in ("stalled", "dormant", "never_engaged")
+            else None
         )
         recent_engagements = get_recent_engagements(account_name, campaign_by_company)
         row = {
@@ -193,6 +200,7 @@ def run_tracker(
 def format_tracker_report(rows):
     actionable_stalled = [r for r in rows if r["actionable_status"] == "stalled"]
     actionable_dormant = [r for r in rows if r["actionable_status"] == "dormant"]
+    actionable_never_engaged = [r for r in rows if r["actionable_status"] == "never_engaged"]
     closed_not_actionable = [r for r in rows if r["actionable_status"] == "closed_not_actionable"]
     lines = [
         f"{len(actionable_stalled)} of {len(rows)} tracked accounts are stalled with an open deal.",
@@ -201,6 +209,11 @@ def format_tracker_report(rows):
         lines.append(
             f"{len(actionable_dormant)} more have gone quiet for over a year (dormant) with an open deal — "
             f"still worth a look, but lower urgency than the recently-stalled accounts above."
+        )
+    if actionable_never_engaged:
+        lines.append(
+            f"{len(actionable_never_engaged)} more have never had a real second touch — no relationship to "
+            f"re-engage, but worth a first outreach."
         )
     if closed_not_actionable:
         lines.append(
@@ -218,17 +231,25 @@ def format_tracker_report(rows):
             continue
 
         lines.append(format_suggestions_summary(row["result"], row["account"]))
-        if row["result"]["staleness"]["status"] in ("stalled", "dormant") and row["opportunity_status"] is None:
+        if row["result"]["staleness"]["status"] in (
+            "stalled",
+            "dormant",
+            "never_engaged",
+        ) and row["opportunity_status"] is None:
             lines.append("  Note: no Opportunity-stage data available for this account — not cross-checked against Salesforce.")
 
-        # on_pace shows the rep's own note as-is (still probably current);
-        # cooling_off/stalled/dormant get the blended suggestion instead
-        # (see playbook.next_step_display for why not both).
+        # on_pace (and never_engaged with a logged plan) show the rep's own
+        # note as-is; cooling_off/stalled/dormant get the blended suggestion
+        # instead (see playbook.next_step_display for why not both);
+        # never_engaged with no logged plan gets a distinct first-outreach
+        # prompt rather than either -- there's no precedent to lean on.
         next_step = row["next_step_display"]
         if next_step["mode"] == "raw":
             lines.append(f'  Rep\'s own last "Next Step" note on the open deal: "{next_step["text"]}"')
         elif next_step["mode"] == "blended":
             lines.append(f"  Suggested next step: {next_step['text']}")
+        elif next_step["mode"] == "first_outreach":
+            lines.append(f"  {next_step['text']}")
 
         lines.extend(_format_engagement_lines(row["recent_engagements"]))
 

@@ -209,9 +209,31 @@ class TestNextStepDisplay:
         result = next_step_display(row)
         assert result["mode"] == "blended"
 
+    def test_never_engaged_with_logged_plan_shows_raw(self):
+        # No established relationship to judge the note's staleness against
+        # -- if a rep did log a plan, trust it, same as on_pace.
+        row = {
+            "actionable_status": "never_engaged",
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {"days_since_last_touch": 45},
+        }
+        assert next_step_display(row) == {"mode": "raw", "text": "confirm budget by June"}
+
+    def test_never_engaged_with_no_logged_plan_shows_first_outreach_prompt(self):
+        row = {
+            "actionable_status": "never_engaged",
+            "opportunity_status": None,
+            "examples": [],
+            "staleness": {"days_since_last_touch": 45},
+        }
+        result = next_step_display(row)
+        assert result["mode"] == "first_outreach"
+        assert "first outreach" in result["text"]
+
     def test_other_statuses_show_nothing(self):
         row = {
-            "actionable_status": "insufficient_history",
+            "actionable_status": "new",
             "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
             "examples": [],
             "staleness": {},

@@ -126,6 +126,14 @@ STILL_MARKETING_ENGAGED_CLAUSE = (
     " They've kept engaging with your webinars and emails, though — worth a personal note instead of another automated touch."
 )
 
+# For "never_engaged" accounts (see staleness.py's NEW_LEAD_GRACE_DAYS) with
+# no logged rep plan to fall back on. Deliberately NOT "Reach out directly"
+# (the precedent_only phrasing above) -- that implies a relationship that
+# went quiet, which isn't what happened here. There's also no revival
+# precedent to speak of: suggest_reengagement_examples only builds examples
+# for "stalled"/"dormant," so this account never gets any.
+FIRST_OUTREACH_MESSAGE = "No real conversation on file yet — worth a first outreach."
+
 
 def _still_marketing_engaged(row):
     """True if this account has a real Campaign Member touch more recent
@@ -191,15 +199,25 @@ def next_step_display(row):
         longer ago than normal — show the blended one-sentence version
         instead. That sentence already quotes the raw note verbatim, so
         showing both would just repeat the same text twice.
+      - "never_engaged": no established relationship to judge a note's
+        staleness against, so a logged plan (rare, but possible) is shown
+        as-is like on_pace. With no logged plan, show FIRST_OUTREACH_MESSAGE
+        instead of the blended precedent-based sentence — there's no
+        precedent for a lead that's never had a real second touch.
       - anything else: no next-step material to show.
 
-    Returns {"mode": "raw" | "blended" | "none", "text": str | None}."""
+    Returns {"mode": "raw" | "blended" | "first_outreach" | "none", "text": str | None}."""
     status = row.get("actionable_status")
     opp_status = row.get("opportunity_status") or {}
     next_step = (opp_status.get("open_next_steps") or [None])[0]
 
     if status == "on_pace":
         return {"mode": "raw", "text": next_step} if next_step else {"mode": "none", "text": None}
+
+    if status == "never_engaged":
+        if next_step:
+            return {"mode": "raw", "text": next_step}
+        return {"mode": "first_outreach", "text": FIRST_OUTREACH_MESSAGE}
 
     if status in ("cooling_off", "stalled", "dormant"):
         blended = suggest_next_step(row)
