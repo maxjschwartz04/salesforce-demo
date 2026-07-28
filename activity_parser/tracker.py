@@ -24,6 +24,7 @@ from activity_feed import build_activity_feed
 from campaign_parser import get_recent_engagements
 from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
+from playbook import next_step_display
 from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, suggest_reengagement_examples
 
 # How far back from an account's most recent activity to look when checking
@@ -142,7 +143,13 @@ def run_tracker(
     recent marketing-engagement facts, exact-match only (see
     campaign_parser.get_recent_engagements for why). Returns a list of row
     dicts, sorted most-urgent-and-actionable-first; accounts confirmed
-    already closed sort last regardless of how stale their activity looks."""
+    already closed sort last regardless of how stale their activity looks.
+
+    Each row also carries "staleness" and "examples" as top-level aliases
+    of result["staleness"]/result["examples"] (same dicts, not copies) and
+    a precomputed "next_step_display" (from playbook.next_step_display) --
+    that's the flat shape playbook.py's functions expect, computed once
+    here rather than re-derived by every caller."""
     account_status = account_status or {}
     campaign_by_company = campaign_by_company or {}
     rows = []
@@ -160,17 +167,24 @@ def run_tracker(
             check_recent_sender_mix(records, nurture_senders) if actionable_status in ("stalled", "dormant") else None
         )
         recent_engagements = get_recent_engagements(account_name, campaign_by_company)
-        rows.append(
-            {
-                "account": account_name,
-                "result": result,
-                "sender_mix": sender_mix,
-                "opportunity_status": opportunity_status,
-                "actionable_status": actionable_status,
-                "recent_engagements": recent_engagements,
-                "activity_feed": build_activity_feed(records),
-            }
-        )
+        row = {
+            "account": account_name,
+            "result": result,
+            # Duplicated (not copied -- same dicts) at the top level rather
+            # than nested under "result", because that's the flat shape
+            # playbook.py's functions expect. Keeping "result" too so
+            # nothing else in this file that already reads row["result"]
+            # needs to change.
+            "staleness": result["staleness"],
+            "examples": result["examples"],
+            "sender_mix": sender_mix,
+            "opportunity_status": opportunity_status,
+            "actionable_status": actionable_status,
+            "recent_engagements": recent_engagements,
+            "activity_feed": build_activity_feed(records),
+        }
+        row["next_step_display"] = next_step_display(row)
+        rows.append(row)
 
     rows.sort(key=_urgency_sort_key)
     return rows
@@ -207,9 +221,14 @@ def format_tracker_report(rows):
         if row["result"]["staleness"]["status"] in ("stalled", "dormant") and row["opportunity_status"] is None:
             lines.append("  Note: no Opportunity-stage data available for this account — not cross-checked against Salesforce.")
 
-        if row["actionable_status"] in ("stalled", "dormant") and row["opportunity_status"]:
-            for next_step in row["opportunity_status"]["open_next_steps"]:
-                lines.append(f'  Rep\'s own last "Next Step" note on the open deal: "{next_step}"')
+        # on_pace shows the rep's own note as-is (still probably current);
+        # cooling_off/stalled/dormant get the blended suggestion instead
+        # (see playbook.next_step_display for why not both).
+        next_step = row["next_step_display"]
+        if next_step["mode"] == "raw":
+            lines.append(f'  Rep\'s own last "Next Step" note on the open deal: "{next_step["text"]}"')
+        elif next_step["mode"] == "blended":
+            lines.append(f"  Suggested next step: {next_step['text']}")
 
         lines.extend(_format_engagement_lines(row["recent_engagements"]))
 
