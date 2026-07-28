@@ -28,7 +28,7 @@ import openpyxl
 _DATE_GROUP_START_PATTERN = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})")
 
 
-def _parse_date_group_start(date_group):
+def parse_date_group_start(date_group):
     """date_group is a week-range string like '7/19/2026 - 7/25/2026' — this
     is the finest granularity the export gives us, so sorting/recency uses
     the range's start date, not an exact day."""
@@ -122,7 +122,7 @@ def get_recent_engagements(company, grouped, top_n=3):
     it's noisier; fuzzy-matching that against a canonical account name
     risks pairing the wrong company rather than just missing a real one."""
     engagements = grouped.get(company, [])
-    dated = [(e, _parse_date_group_start(e["date_group"])) for e in engagements]
+    dated = [(e, parse_date_group_start(e["date_group"])) for e in engagements]
     dated = [(e, d) for e, d in dated if d is not None]
     dated.sort(key=lambda x: x[1], reverse=True)
     return [e for e, _ in dated[:top_n]]
@@ -164,7 +164,7 @@ def top_contacts(company, grouped, limit=3):
         )
         entry["engagement_count"] += 1
 
-        touch_dt = _parse_date_group_start(e.get("date_group"))
+        touch_dt = parse_date_group_start(e.get("date_group"))
         if touch_dt is not None and (entry["_most_recent_dt"] is None or touch_dt > entry["_most_recent_dt"]):
             entry["_most_recent_dt"] = touch_dt
             entry["most_recent_date_group"] = e.get("date_group")

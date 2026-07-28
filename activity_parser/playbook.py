@@ -40,6 +40,10 @@ Usage:
     from playbook import match_plays, compose_starting_draft, suggest_next_step, next_step_display
 """
 
+from datetime import datetime
+
+from campaign_parser import parse_date_group_start
+
 PLAYS = [
     {
         "id": "dormant_nurture_needs_personal_touch",
@@ -99,6 +103,35 @@ NEXT_STEP_TEMPLATES = {
     "precedent_only": ("Reach out directly — similarly quiet accounts have come back {response_time_phrase} once someone did."),
 }
 
+# Appended (not blended in as a fill-in blank) when real Campaign Member
+# data shows this account attended a webinar, opened a newsletter, etc.
+# more recently than its last logged sales activity -- i.e. they've gone
+# quiet on direct conversation but haven't disengaged from the brand
+# entirely. Deliberately doesn't change the staleness status itself (see
+# staleness.py / campaign_parser.py module docstrings: sales-conversation
+# gaps and marketing engagement are kept as separate signals on purpose,
+# since marketing engagement alone isn't proof the sales relationship is
+# active) -- this only adjusts the TONE of the suggestion for accounts
+# that are warmer than a total absence of any engagement.
+STILL_MARKETING_ENGAGED_CLAUSE = (
+    " They've kept engaging with your webinars and emails in the meantime, so a direct, personal note is likely to land."
+)
+
+
+def _still_marketing_engaged(row):
+    """True if this account has a real Campaign Member touch more recent
+    than its last logged sales activity. row needs 'recent_engagements'
+    (from campaign_parser.get_recent_engagements) and 'staleness' (from
+    staleness.assess_staleness, for last_touch_date) to say anything --
+    returns False rather than guessing if either is missing."""
+    engagements = row.get("recent_engagements") or []
+    last_touch_raw = (row.get("staleness") or {}).get("last_touch_date")
+    if not engagements or not last_touch_raw:
+        return False
+    last_touch = datetime.strptime(last_touch_raw, "%Y-%m-%d")
+    engagement_dates = [d for d in (parse_date_group_start(e.get("date_group")) for e in engagements) if d is not None]
+    return bool(engagement_dates) and max(engagement_dates) > last_touch
+
 
 def _response_time_phrase(days):
     """Turns a raw response-time number into a phrase that reads naturally
@@ -126,7 +159,15 @@ def suggest_next_step(row):
     NEXT_STEP_TEMPLATES are used, and every blank is a real field pulled
     from this account's own data. Returns None if there's neither a next
     step nor a precedent to build from — never fabricates a sentence to
-    fill the gap."""
+    fill the gap.
+
+    If real Campaign Member data shows this account engaging with
+    webinars/newsletters more recently than its last logged sales touch
+    (see _still_marketing_engaged), STILL_MARKETING_ENGAGED_CLAUSE is
+    appended — the account is warmer than one with zero engagement of any
+    kind, so the suggestion says so. This never changes the staleness
+    status itself, and never appears on its own with nothing else real to
+    say."""
     opp_status = row.get("opportunity_status") or {}
     next_step = (opp_status.get("open_next_steps") or [None])[0]
 
@@ -134,17 +175,22 @@ def suggest_next_step(row):
     precedent = examples[0] if examples else None
 
     if next_step and precedent:
-        return NEXT_STEP_TEMPLATES["next_step_and_precedent"].format(
+        sentence = NEXT_STEP_TEMPLATES["next_step_and_precedent"].format(
             next_step=next_step,
             response_time_phrase=_response_time_phrase(precedent.get("days_to_next_response")),
         )
-    if next_step:
-        return NEXT_STEP_TEMPLATES["next_step_only"].format(next_step=next_step)
-    if precedent:
-        return NEXT_STEP_TEMPLATES["precedent_only"].format(
+    elif next_step:
+        sentence = NEXT_STEP_TEMPLATES["next_step_only"].format(next_step=next_step)
+    elif precedent:
+        sentence = NEXT_STEP_TEMPLATES["precedent_only"].format(
             response_time_phrase=_response_time_phrase(precedent.get("days_to_next_response")),
         )
-    return None
+    else:
+        return None
+
+    if _still_marketing_engaged(row):
+        sentence += STILL_MARKETING_ENGAGED_CLAUSE
+    return sentence
 
 
 def next_step_display(row):

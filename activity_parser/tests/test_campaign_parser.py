@@ -2,7 +2,7 @@ import openpyxl
 import pytest
 
 from campaign_parser import (
-    _parse_date_group_start,
+    parse_date_group_start,
     get_recent_engagements,
     group_by_company,
     parse_campaign_report,
@@ -12,14 +12,14 @@ from campaign_parser import (
 
 class TestParseDateGroupStart:
     def test_extracts_start_of_week_range(self):
-        dt = _parse_date_group_start("7/19/2026 - 7/25/2026")
+        dt = parse_date_group_start("7/19/2026 - 7/25/2026")
         assert (dt.month, dt.day, dt.year) == (7, 19, 2026)
 
     def test_none_input(self):
-        assert _parse_date_group_start(None) is None
+        assert parse_date_group_start(None) is None
 
     def test_unparseable_input(self):
-        assert _parse_date_group_start("not a date range") is None
+        assert parse_date_group_start("not a date range") is None
 
 
 class TestGetRecentEngagements:

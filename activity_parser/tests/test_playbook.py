@@ -132,6 +132,55 @@ class TestSuggestNextStep:
         assert "within about 104 days" in sentence
 
 
+class TestSuggestNextStepMarketingEngagement:
+    def _row(self, last_touch_date, engagements):
+        return {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {"days_since_last_touch": 90, "last_touch_date": last_touch_date},
+            "recent_engagements": engagements,
+        }
+
+    def test_engagement_after_last_touch_appends_clause(self):
+        row = self._row("2026-01-01", [{"date_group": "2/1/2026 - 2/7/2026"}])
+        sentence = suggest_next_step(row)
+        assert "kept engaging" in sentence
+        assert sentence.startswith("confirm budget by June")
+
+    def test_engagement_before_last_touch_does_not_append_clause(self):
+        # They stopped engaging with marketing too, before the last real
+        # sales touch -- not the "still warm" case this clause is for.
+        row = self._row("2026-03-01", [{"date_group": "1/1/2026 - 1/7/2026"}])
+        sentence = suggest_next_step(row)
+        assert "kept engaging" not in sentence
+
+    def test_no_engagements_does_not_append_clause(self):
+        row = self._row("2026-01-01", [])
+        sentence = suggest_next_step(row)
+        assert "kept engaging" not in sentence
+
+    def test_missing_last_touch_date_does_not_append_clause(self):
+        row = {
+            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
+            "examples": [],
+            "staleness": {"days_since_last_touch": 90},
+            "recent_engagements": [{"date_group": "2/1/2026 - 2/7/2026"}],
+        }
+        sentence = suggest_next_step(row)
+        assert "kept engaging" not in sentence
+
+    def test_marketing_engagement_alone_never_fabricates_a_sentence(self):
+        # No next step, no precedent -- the clause has nothing to attach
+        # to, so it must not appear on its own.
+        row = {
+            "opportunity_status": None,
+            "examples": [],
+            "staleness": {"days_since_last_touch": 90, "last_touch_date": "2026-01-01"},
+            "recent_engagements": [{"date_group": "2/1/2026 - 2/7/2026"}],
+        }
+        assert suggest_next_step(row) is None
+
+
 class TestNextStepDisplay:
     def test_on_pace_shows_raw_note(self):
         row = {
