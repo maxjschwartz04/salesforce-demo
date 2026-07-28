@@ -74,34 +74,17 @@ class TestSuggestNextStep:
         row = {"opportunity_status": None, "examples": [], "staleness": {"days_since_last_touch": 50}}
         assert suggest_next_step(row) is None
 
-    def test_combines_next_step_and_precedent(self):
-        # Reads as a suggestion, not a citation -- no account name or
-        # subject line in the sentence, just the rep's plan plus the real
-        # response-time as a plain fact.
+    def test_next_step_wins_over_precedent_with_no_added_comparison(self):
+        # The precedent's response time has its own dedicated spot
+        # elsewhere on screen (the Closest Revival Precedent block) --
+        # repeating it here would say the same thing twice, so a next
+        # step present at all means the sentence is JUST the next step.
         row = {
             "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
             "examples": [self._precedent()],
             "staleness": {"days_since_last_touch": 90},
         }
-        sentence = suggest_next_step(row)
-        assert sentence.startswith("confirm budget by June")
-        assert "within about 6 days" in sentence
-        assert "Geron" not in sentence
-        assert "Re: reconnect" not in sentence
-
-    def test_precedent_framed_as_one_case_not_a_general_pattern(self):
-        # Regression guard: the precedent is examples[0], the single
-        # closest gap-ratio match -- not an average across many accounts.
-        # "similarly quiet accounts have come back within 6 days" overstates
-        # one data point as a repeatable pattern; must read as one example.
-        row = {
-            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
-            "examples": [self._precedent()],
-            "staleness": {"days_since_last_touch": 90},
-        }
-        sentence = suggest_next_step(row)
-        assert "similarly quiet accounts" not in sentence
-        assert "one comparable case" in sentence
+        assert suggest_next_step(row) == "confirm budget by June"
 
     def test_next_step_only_when_no_precedent(self):
         row = {
@@ -112,38 +95,15 @@ class TestSuggestNextStep:
         sentence = suggest_next_step(row)
         assert sentence == "confirm budget by June"
 
-    def test_precedent_only_when_no_next_step(self):
+    def test_precedent_only_when_no_next_step_is_a_bare_action(self):
+        # No response-time citation, no account name, no subject line --
+        # just the action. The evidence lives in the precedent block.
         row = {
             "opportunity_status": None,
             "examples": [self._precedent()],
             "staleness": {"days_since_last_touch": 90},
         }
-        sentence = suggest_next_step(row)
-        assert "within about 6 days" in sentence
-        assert "Geron" not in sentence
-        assert "Reach out directly" in sentence
-
-    def test_same_day_response_reads_naturally_not_as_zero_days(self):
-        # Real data has plenty of these -- roughly a third of real
-        # precedents in the closed-won library are same-day replies.
-        row = {
-            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
-            "examples": [self._precedent(days=0.0)],
-            "staleness": {"days_since_last_touch": 90},
-        }
-        sentence = suggest_next_step(row)
-        assert "0.0 days" not in sentence
-        assert "the same day" in sentence
-
-    def test_fractional_response_time_rounds_to_a_whole_number(self):
-        row = {
-            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
-            "examples": [self._precedent(days=104.21)],
-            "staleness": {"days_since_last_touch": 90},
-        }
-        sentence = suggest_next_step(row)
-        assert "104.21" not in sentence
-        assert "within about 104 days" in sentence
+        assert suggest_next_step(row) == "Reach out directly."
 
 
 class TestSuggestNextStepMarketingEngagement:

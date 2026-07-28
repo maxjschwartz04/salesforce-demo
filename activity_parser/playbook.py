@@ -27,14 +27,17 @@ starting point for a human to edit, not a finished message, and there is
 no send capability anywhere in this codebase.
 
 suggest_next_step() is a smaller, one-sentence version of the same idea:
-the rep's own Next Step note is a snapshot from whenever they last touched
-the account, so showing it alone can read as current advice when it's
-actually stale. This pairs it with the closest closed-won precedent using
-a fixed, editable sentence template (see NEXT_STEP_TEMPLATES) — never
-generated prose. next_step_display() decides, per account, whether the
-raw note is still trustworthy on its own (on_pace) or should be shown as
-the blended sentence instead (cooling_off/stalled) — not both, since the
-blended sentence already quotes the raw note verbatim.
+just the action to take (the rep's own logged plan, or "Reach out
+directly" if a precedent exists but there's no logged plan) — never
+generated prose (see NEXT_STEP_TEMPLATES). It deliberately does NOT cite
+the precedent's response time inline; that comparison already has its own
+dedicated spot elsewhere on the same screen (the closest revival
+example's account/subject/response-time), so repeating it here would just
+say the same thing twice. next_step_display() decides, per account,
+whether the raw note is still trustworthy on its own (on_pace) or should
+be shown as the blended sentence instead (cooling_off/stalled/dormant) —
+not both, since the blended sentence already quotes the raw note
+verbatim.
 
 Usage:
     from playbook import match_plays, compose_starting_draft, suggest_next_step, next_step_display
@@ -92,23 +95,17 @@ def match_plays(row):
 # not a citation -- no account names or subject lines named in the sentence
 # itself (that's what made earlier drafts read like a footnote explaining
 # where the suggestion came from rather than just making the suggestion).
-# Which shape gets used depends on which real fields actually exist for
-# this account; a blank with nothing real to put in it just isn't filled
-# in, never invented.
 #
-# Deliberately says "one comparable case," not "similarly quiet accounts"
-# (plural). The precedent plugged in here is examples[0] -- the SINGLE
-# closest gap-ratio match in the whole library, not an average or a
-# frequency. Saying "accounts have come back within 6 days" reads like a
-# repeatable pattern; it's one account's one response time that happened
-# to match well on the math. If it were actually that reliable, it
-# wouldn't be a stalled account in the first place. The honest framing is
-# "here's one real data point for calibration," not "here's what usually
-# happens" -- same length, same strong lead recommendation, no overclaim.
+# Deliberately doesn't cite the precedent's response time here anymore --
+# that comparison already lives in its own dedicated place (the "Closest
+# Revival Precedent" block / format_suggestions_summary's examples list),
+# so repeating "in one comparable case, that got a reply in 6 days" here
+# was just saying the same thing twice in two different spots on the same
+# screen. This is the ACTION, full stop; the evidence for it is shown
+# separately, once.
 NEXT_STEP_TEMPLATES = {
-    "next_step_and_precedent": ("{next_step} — in one comparable case, that got a reply {response_time_phrase}."),
     "next_step_only": "{next_step}",
-    "precedent_only": "Reach out directly — in one comparable case, that got a reply {response_time_phrase}.",
+    "precedent_only": "Reach out directly.",
 }
 
 # Appended (not blended in as a fill-in blank) when real Campaign Member
@@ -145,35 +142,17 @@ def _still_marketing_engaged(row):
     return bool(engagement_dates) and max(engagement_dates) > last_touch
 
 
-def _response_time_phrase(days):
-    """Turns a raw response-time number into a phrase that reads naturally
-    at any value -- "within about 6 days" is fine, but the raw number
-    reads oddly at the extremes real data actually has: same-day replies
-    (0.0, and these are common -- roughly a third of real precedents in
-    this library) and long fractional gaps (e.g. 104.21) that don't need
-    two decimal places to make the point."""
-    if days is None:
-        return "eventually"
-    if days < 1:
-        return "the same day"
-    if days < 1.5:
-        return "within a day"
-    return f"within about {round(days)} days"
-
-
 def suggest_next_step(row):
-    """A one-sentence, template-filled suggestion that leads with the rep's
-    own last logged plan and, where a closed-won precedent exists, folds in
-    its real response-time as a plain suggestion — not a citation, so the
-    sentence doesn't name which account or email it came from. Framed as
-    "one comparable case," not "similarly quiet accounts" — the precedent
-    is the single closest gap-ratio match, not an average across many, and
-    saying "accounts have come back in 6 days" would overstate one data
-    point as a repeatable pattern.
+    """A short, direct action -- the rep's own last logged plan if there is
+    one, or "Reach out directly" if a closed-won precedent exists but
+    there's no logged plan to lean on. Deliberately just the action: the
+    evidence for it (the closest revival precedent's account, subject, and
+    response time) is shown in its own dedicated place elsewhere on the
+    same screen, not repeated here as a citation tacked onto the
+    suggestion.
 
     Deliberately NOT generated prose: only the fixed sentence shapes in
-    NEXT_STEP_TEMPLATES are used, and every blank is a real field pulled
-    from this account's own data. Returns None if there's neither a next
+    NEXT_STEP_TEMPLATES are used. Returns None if there's neither a next
     step nor a precedent to build from — never fabricates a sentence to
     fill the gap.
 
@@ -187,20 +166,12 @@ def suggest_next_step(row):
     opp_status = row.get("opportunity_status") or {}
     next_step = (opp_status.get("open_next_steps") or [None])[0]
 
-    examples = row.get("examples") or []
-    precedent = examples[0] if examples else None
+    has_precedent = bool(row.get("examples"))
 
-    if next_step and precedent:
-        sentence = NEXT_STEP_TEMPLATES["next_step_and_precedent"].format(
-            next_step=next_step,
-            response_time_phrase=_response_time_phrase(precedent.get("days_to_next_response")),
-        )
-    elif next_step:
+    if next_step:
         sentence = NEXT_STEP_TEMPLATES["next_step_only"].format(next_step=next_step)
-    elif precedent:
-        sentence = NEXT_STEP_TEMPLATES["precedent_only"].format(
-            response_time_phrase=_response_time_phrase(precedent.get("days_to_next_response")),
-        )
+    elif has_precedent:
+        sentence = NEXT_STEP_TEMPLATES["precedent_only"]
     else:
         return None
 
