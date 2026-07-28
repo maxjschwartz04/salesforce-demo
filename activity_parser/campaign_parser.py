@@ -128,6 +128,59 @@ def get_recent_engagements(company, grouped, top_n=3):
     return [e for e, _ in dated[:top_n]]
 
 
+def top_contacts(company, grouped, limit=3):
+    """The most relevant real contacts on file for a company, so a rep
+    knows who to reach out to without going back to Salesforce. The same
+    person often shows up across several campaign touches, so this dedupes
+    by email and ranks by that contact's OWN most recent engagement (same
+    recency-first reasoning as get_recent_engagements) rather than by raw
+    touch count, which would favor someone contacted often a long time ago
+    over someone who just engaged.
+
+    Exact company-name match only, same reasoning as get_recent_engagements.
+    Contacts with no email on file are skipped -- nothing to link to.
+
+    Returns [{first_name, last_name, title, email, engagement_count,
+    most_recent_date_group}, ...], most-recently-engaged first."""
+    engagements = grouped.get(company, [])
+
+    by_email = {}
+    for e in engagements:
+        email = e.get("email")
+        if not email:
+            continue
+        key = email.strip().lower()
+        entry = by_email.setdefault(
+            key,
+            {
+                "first_name": None,
+                "last_name": None,
+                "title": None,
+                "email": email,
+                "engagement_count": 0,
+                "_most_recent_dt": None,
+                "most_recent_date_group": None,
+            },
+        )
+        entry["engagement_count"] += 1
+
+        touch_dt = _parse_date_group_start(e.get("date_group"))
+        if touch_dt is not None and (entry["_most_recent_dt"] is None or touch_dt > entry["_most_recent_dt"]):
+            entry["_most_recent_dt"] = touch_dt
+            entry["most_recent_date_group"] = e.get("date_group")
+            # Keep whichever name/title came with the most recent touch --
+            # a title on file from years ago may no longer be accurate.
+            entry["first_name"] = e.get("first_name")
+            entry["last_name"] = e.get("last_name")
+            entry["title"] = e.get("title")
+
+    contacts = list(by_email.values())
+    contacts.sort(key=lambda c: c["_most_recent_dt"] or datetime.min, reverse=True)
+    for c in contacts:
+        del c["_most_recent_dt"]
+    return contacts[:limit]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report_path", help="Path to the Campaign Member report export (.xlsx)")

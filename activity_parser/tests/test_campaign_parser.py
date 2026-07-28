@@ -1,7 +1,13 @@
 import openpyxl
 import pytest
 
-from campaign_parser import _parse_date_group_start, get_recent_engagements, group_by_company, parse_campaign_report
+from campaign_parser import (
+    _parse_date_group_start,
+    get_recent_engagements,
+    group_by_company,
+    parse_campaign_report,
+    top_contacts,
+)
 
 
 class TestParseDateGroupStart:
@@ -51,6 +57,76 @@ class TestGetRecentEngagements:
         # unreliable to risk pairing with the wrong real account.
         grouped = {"Acme Corporation": [self._engagement("1/1/2026 - 1/7/2026", "Someone")]}
         assert get_recent_engagements("Acme", grouped) == []
+
+
+class TestTopContacts:
+    def _touch(self, date_group, first, last, title, email):
+        return {
+            "date_group": date_group,
+            "member_type": "Contact",
+            "first_name": first,
+            "last_name": last,
+            "title": title,
+            "email": email,
+            "company": "Acme",
+            "campaign_name": "Some Campaign",
+            "member_status": "Attended",
+            "campaign_type": "Webinar",
+        }
+
+    def test_dedupes_by_email_and_keeps_most_recent_touch_count(self):
+        grouped = {
+            "Acme": [
+                self._touch("1/1/2026 - 1/7/2026", "Jane", "Doe", "Manager", "jane@acme.com"),
+                self._touch("6/1/2026 - 6/7/2026", "Jane", "Doe", "Director", "jane@acme.com"),
+            ]
+        }
+        contacts = top_contacts("Acme", grouped)
+        assert len(contacts) == 1
+        assert contacts[0]["engagement_count"] == 2
+        # Most recent touch's title wins -- a promotion since the first touch.
+        assert contacts[0]["title"] == "Director"
+
+    def test_email_dedup_is_case_insensitive(self):
+        grouped = {
+            "Acme": [
+                self._touch("1/1/2026 - 1/7/2026", "Jane", "Doe", "Manager", "Jane@Acme.com"),
+                self._touch("2/1/2026 - 2/7/2026", "Jane", "Doe", "Manager", "jane@acme.com"),
+            ]
+        }
+        contacts = top_contacts("Acme", grouped)
+        assert len(contacts) == 1
+        assert contacts[0]["engagement_count"] == 2
+
+    def test_sorted_by_most_recent_engagement_not_by_count(self):
+        # "Frequent" engaged 3 times but all long ago; "Recent" engaged once
+        # but just now -- recency wins since that's who's actually warm.
+        grouped = {
+            "Acme": [
+                self._touch("1/1/2020 - 1/7/2020", "Frequent", "One", "", "frequent@acme.com"),
+                self._touch("1/8/2020 - 1/14/2020", "Frequent", "One", "", "frequent@acme.com"),
+                self._touch("1/15/2020 - 1/21/2020", "Frequent", "One", "", "frequent@acme.com"),
+                self._touch("6/1/2026 - 6/7/2026", "Recent", "Two", "", "recent@acme.com"),
+            ]
+        }
+        contacts = top_contacts("Acme", grouped)
+        assert [c["email"] for c in contacts] == ["recent@acme.com", "frequent@acme.com"]
+
+    def test_skips_contacts_with_no_email(self):
+        grouped = {"Acme": [self._touch("1/1/2026 - 1/7/2026", "No", "Email", "", None)]}
+        assert top_contacts("Acme", grouped) == []
+
+    def test_respects_limit(self):
+        grouped = {
+            "Acme": [
+                self._touch(f"1/{i}/2026 - 1/{i+6}/2026", f"Person{i}", "Test", "", f"p{i}@acme.com")
+                for i in range(1, 6)
+            ]
+        }
+        assert len(top_contacts("Acme", grouped, limit=3)) == 3
+
+    def test_unknown_company_returns_empty(self):
+        assert top_contacts("Nobody Inc", {}) == []
 
 
 def _write_campaign_workbook(tmp_path, rows):
