@@ -140,3 +140,21 @@ class TestFormatTrackerReportNextStep:
         assert "No real conversation on file yet — worth a first outreach." in report
         assert "Suggested next step" not in report
         assert "Rep's own last" not in report
+
+    def test_suggested_email_is_printed_when_present(self):
+        row = self._row("stalled", {"mode": "blended", "text": "reach out"})
+        row["suggested_email"] = {
+            "id": "slow_track_reapproach",
+            "source": "AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1",
+            "subject": "AgencyIQ Updates – time to connect?",
+            "body": "Jane,\n\nIt's been a while.",
+        }
+        report = format_tracker_report([row])
+        assert "Suggested email (AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1):" in report
+        assert "Subject: AgencyIQ Updates – time to connect?" in report
+        assert "It's been a while." in report
+
+    def test_no_suggested_email_prints_nothing_extra(self):
+        row = self._row("on_pace", {"mode": "none", "text": None})
+        report = format_tracker_report([row])
+        assert "Suggested email" not in report

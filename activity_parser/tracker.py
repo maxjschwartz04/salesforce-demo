@@ -21,7 +21,8 @@ import json
 import sys
 
 from activity_feed import build_activity_feed
-from campaign_parser import get_recent_engagements
+from campaign_parser import get_recent_engagements, has_attended_webinar, has_subscribed_to_newsletter, top_contacts
+from email_templates import suggest_email_template
 from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from playbook import next_step_display
@@ -150,16 +151,20 @@ def run_tracker(
     tool is new-business only; Account Management owns outreach to accounts
     that have ever closed a deal). campaign_by_company: optional {company:
     [engagement, ...]} from campaign_parser.group_by_company — surfaced as
-    recent marketing-engagement facts, exact-match only (see
-    campaign_parser.get_recent_engagements for why). Returns a list of row
-    dicts, sorted most-urgent-and-actionable-first; accounts confirmed
-    already closed sort last regardless of how stale their activity looks.
+    recent marketing-engagement facts (get_recent_engagements) and the
+    account's top real contacts (top_contacts), exact-match only in both
+    cases (see campaign_parser.get_recent_engagements for why). Returns a
+    list of row dicts, sorted most-urgent-and-actionable-first; accounts
+    confirmed already closed sort last regardless of how stale their
+    activity looks.
 
     Each row also carries "staleness" and "examples" as top-level aliases
-    of result["staleness"]/result["examples"] (same dicts, not copies) and
-    a precomputed "next_step_display" (from playbook.next_step_display) --
-    that's the flat shape playbook.py's functions expect, computed once
-    here rather than re-derived by every caller."""
+    of result["staleness"]/result["examples"] (same dicts, not copies), a
+    precomputed "next_step_display" (from playbook.next_step_display), and
+    a precomputed "suggested_email" (from email_templates.suggest_email_
+    template, using "attended_webinar"/"subscribed_to_newsletter" from
+    campaign_parser) -- all computed once here rather than re-derived by
+    every caller."""
     account_status = account_status or {}
     campaign_by_company = campaign_by_company or {}
     rows = []
@@ -193,9 +198,13 @@ def run_tracker(
             "opportunity_status": opportunity_status,
             "actionable_status": actionable_status,
             "recent_engagements": recent_engagements,
+            "contacts": top_contacts(account_name, campaign_by_company),
+            "attended_webinar": has_attended_webinar(account_name, campaign_by_company),
+            "subscribed_to_newsletter": has_subscribed_to_newsletter(account_name, campaign_by_company),
             "activity_feed": build_activity_feed(records),
         }
         row["next_step_display"] = next_step_display(row)
+        row["suggested_email"] = suggest_email_template(row)
         rows.append(row)
 
     rows.sort(key=_urgency_sort_key)
@@ -248,6 +257,13 @@ def format_tracker_report(rows):
             lines.append(f"  Suggested next step: {next_step['text']}")
         elif next_step["mode"] == "first_outreach":
             lines.append(f"  {next_step['text']}")
+
+        suggested_email = row.get("suggested_email")
+        if suggested_email:
+            lines.append(f"  Suggested email ({suggested_email['source']}):")
+            lines.append(f"    Subject: {suggested_email['subject']}")
+            for body_line in suggested_email["body"].splitlines():
+                lines.append(f"    {body_line}")
 
         lines.extend(_format_engagement_lines(row["recent_engagements"]))
 

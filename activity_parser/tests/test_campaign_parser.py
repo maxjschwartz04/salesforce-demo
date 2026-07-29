@@ -5,6 +5,8 @@ from campaign_parser import (
     parse_date_group_start,
     get_recent_engagements,
     group_by_company,
+    has_attended_webinar,
+    has_subscribed_to_newsletter,
     parse_campaign_report,
     top_contacts,
 )
@@ -57,6 +59,45 @@ class TestGetRecentEngagements:
         # unreliable to risk pairing with the wrong real account.
         grouped = {"Acme Corporation": [self._engagement("1/1/2026 - 1/7/2026", "Someone")]}
         assert get_recent_engagements("Acme", grouped) == []
+
+
+class TestHasAttendedWebinar:
+    def _row(self, campaign_name, member_status):
+        return {"company": "Acme", "campaign_name": campaign_name, "member_status": member_status}
+
+    def test_real_webinar_naming_convention_with_attended_status(self):
+        grouped = {"Acme": [self._row("AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda", "Attended")]}
+        assert has_attended_webinar("Acme", grouped) is True
+
+    def test_attended_on_demand_counts_too(self):
+        grouped = {"Acme": [self._row("AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda", "Attended On-demand")]}
+        assert has_attended_webinar("Acme", grouped) is True
+
+    def test_registered_but_not_attended_does_not_count(self):
+        grouped = {"Acme": [self._row("AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda", "Filled Out Form")]}
+        assert has_attended_webinar("Acme", grouped) is False
+
+    def test_non_webinar_campaign_does_not_count(self):
+        grouped = {"Acme": [self._row("MKT.AIQ.2025.Subscribe FDA Today Food.EM.Food Webinar", "Responded")]}
+        assert has_attended_webinar("Acme", grouped) is False
+
+    def test_unknown_company_returns_false(self):
+        assert has_attended_webinar("Nobody Inc", {}) is False
+
+
+class TestHasSubscribedToNewsletter:
+    def test_real_subscribe_campaign_naming(self):
+        grouped = {
+            "Acme": [{"company": "Acme", "campaign_name": "MKT.AIQ.2025.Subscribe FDA Today Food.EM.Food Webinar"}]
+        }
+        assert has_subscribed_to_newsletter("Acme", grouped) is True
+
+    def test_webinar_only_campaign_does_not_count(self):
+        grouped = {"Acme": [{"company": "Acme", "campaign_name": "AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda"}]}
+        assert has_subscribed_to_newsletter("Acme", grouped) is False
+
+    def test_unknown_company_returns_false(self):
+        assert has_subscribed_to_newsletter("Nobody Inc", {}) is False
 
 
 class TestTopContacts:

@@ -27,6 +27,25 @@ import openpyxl
 
 _DATE_GROUP_START_PATTERN = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})")
 
+# Confirmed against a real export (Quest Attendees - Engagement History):
+# webinar campaigns follow a consistent "...Webinar.WBN...." naming
+# convention (e.g. "AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda") across
+# all 10 distinct webinar campaigns seen in that file -- high confidence.
+_WEBINAR_CAMPAIGN_PATTERN = re.compile(r"webinar|\.wbn\.", re.IGNORECASE)
+
+# Seen in the same export: "MKT.AIQ.2025.Subscribe FDA Today Food.EM.Food
+# Webinar" is a newsletter-signup campaign, not a webinar one, despite
+# ending in "Food Webinar" -- but that's ONE observed example, not a
+# confirmed convention the way the webinar pattern is. Treat this as a
+# starting heuristic to verify against a real newsletter-specific export
+# before leaning on it the same way.
+_NEWSLETTER_SIGNUP_CAMPAIGN_PATTERN = re.compile(r"subscribe", re.IGNORECASE)
+
+# Member Status values that mean the contact actually showed up, not just
+# registered -- "Filled Out Form" alone (an RSVP) doesn't count as having
+# attended.
+_ATTENDED_STATUSES = {"Attended", "Attended On-demand", "Attended On-Demand"}
+
 
 def parse_date_group_start(date_group):
     """date_group is a week-range string like '7/19/2026 - 7/25/2026' — this
@@ -126,6 +145,28 @@ def get_recent_engagements(company, grouped, top_n=3):
     dated = [(e, d) for e, d in dated if d is not None]
     dated.sort(key=lambda x: x[1], reverse=True)
     return [e for e, _ in dated[:top_n]]
+
+
+def has_attended_webinar(company, grouped):
+    """True if anyone at this company has actually attended (live or
+    on-demand) an AgencyIQ webinar -- an RSVP/"Filled Out Form" with no
+    attendance doesn't count. Company-level, same exact-match reasoning as
+    get_recent_engagements."""
+    return any(
+        _WEBINAR_CAMPAIGN_PATTERN.search(e.get("campaign_name") or "") and e.get("member_status") in _ATTENDED_STATUSES
+        for e in grouped.get(company, [])
+    )
+
+
+def has_subscribed_to_newsletter(company, grouped):
+    """True if anyone at this company has a campaign membership matching
+    the newsletter-signup naming pattern. See
+    _NEWSLETTER_SIGNUP_CAMPAIGN_PATTERN's comment -- this is a starting
+    heuristic from one observed example, not a fully confirmed convention
+    the way has_attended_webinar's pattern is."""
+    return any(
+        _NEWSLETTER_SIGNUP_CAMPAIGN_PATTERN.search(e.get("campaign_name") or "") for e in grouped.get(company, [])
+    )
 
 
 def top_contacts(company, grouped, limit=3):
