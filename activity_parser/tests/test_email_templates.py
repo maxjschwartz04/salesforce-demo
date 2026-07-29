@@ -1,13 +1,14 @@
 from email_templates import suggest_email_template
 
 
-def row(status, subscribed=True, attended=True, contacts=None, account="Acme Corp"):
+def row(status, subscribed=True, attended=True, contacts=None, account="Acme Corp", examples=None):
     return {
         "actionable_status": status,
         "account": account,
         "contacts": contacts if contacts is not None else [{"first_name": "Jane"}],
         "subscribed_to_newsletter": subscribed,
         "attended_webinar": attended,
+        "examples": examples if examples is not None else [{"account": "Geron Corporation"}],
     }
 
 
@@ -18,12 +19,20 @@ class TestSuggestEmailTemplate:
     def test_on_pace_gets_no_suggestion(self):
         assert suggest_email_template(row("on_pace")) is None
 
-    def test_stalled_always_gets_slow_track_reapproach(self):
+    def test_stalled_with_precedent_gets_slow_track_reapproach(self):
         # Regardless of newsletter/webinar status -- an established
-        # relationship gone quiet gets the re-approach script, not a cold
-        # newsletter pitch.
+        # relationship gone quiet, with a real closed-won revival example
+        # backing it up, gets the "we've seen this before" re-approach
+        # script, not a cold newsletter pitch.
         result = suggest_email_template(row("stalled", subscribed=False, attended=False))
         assert result["id"] == "slow_track_reapproach"
+
+    def test_stalled_without_precedent_gets_product_feedback(self):
+        # No matching closed-won revival example for this account -- don't
+        # imply a precedent that isn't there; ask for product feedback
+        # instead (a different real script, not generated copy).
+        result = suggest_email_template(row("stalled", examples=[]))
+        assert result["id"] == "slow_track_product_feedback"
 
     def test_never_engaged_not_subscribed_gets_newsletter_invite(self):
         result = suggest_email_template(row("never_engaged", subscribed=False, attended=False))

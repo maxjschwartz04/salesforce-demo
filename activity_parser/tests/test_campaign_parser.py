@@ -84,6 +84,45 @@ class TestHasAttendedWebinar:
     def test_unknown_company_returns_false(self):
         assert has_attended_webinar("Nobody Inc", {}) is False
 
+    def test_campaign_type_is_authoritative_when_present(self):
+        # Regression: confirmed against a real 55k-row export that Campaign
+        # Type catches a real webinar campaign the name pattern alone
+        # would miss (a tradeshow-associated session name with no
+        # "webinar"/"WBN" in it).
+        grouped = {
+            "Acme": [
+                {
+                    "company": "Acme",
+                    "campaign_name": "MKT.AIQ.2021.09.Tradeshow.EVE.RAPS Session",
+                    "campaign_type": "Webinar",
+                    "member_status": "Attended",
+                }
+            ]
+        }
+        assert has_attended_webinar("Acme", grouped) is True
+
+    def test_campaign_type_overrides_a_misleading_name_match(self):
+        # Regression: the same export showed real promo emails whose name
+        # mentions "webinar" but whose Campaign Type says Email/Website --
+        # when Campaign Type is available, trust it over the name.
+        grouped = {
+            "Acme": [
+                {
+                    "company": "Acme",
+                    "campaign_name": "MKT.AIQ.2025.Life Sciences Webinar.EM.Prospect Request Demo",
+                    "campaign_type": "Email",
+                    "member_status": "Attended",
+                }
+            ]
+        }
+        assert has_attended_webinar("Acme", grouped) is False
+
+    def test_falls_back_to_name_pattern_when_campaign_type_column_is_absent(self):
+        # Some real exports (Quest Attendees) don't include a Campaign
+        # Type column at all -- must still work off the name pattern.
+        grouped = {"Acme": [self._row("AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda", "Attended")]}
+        assert has_attended_webinar("Acme", grouped) is True
+
 
 class TestHasSubscribedToNewsletter:
     def test_real_subscribe_campaign_naming(self):

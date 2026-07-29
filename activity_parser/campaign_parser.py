@@ -31,14 +31,25 @@ _DATE_GROUP_START_PATTERN = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})")
 # webinar campaigns follow a consistent "...Webinar.WBN...." naming
 # convention (e.g. "AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda") across
 # all 10 distinct webinar campaigns seen in that file -- high confidence.
+# This is a fallback, though: checked against a second, much larger real
+# export (Company with any campaign -- 55k rows, 5 years), the "Campaign
+# Type" column (when present) is the authoritative signal and catches a
+# real webinar campaign the name pattern alone would have missed (a
+# tradeshow-associated session), while the name pattern alone would have
+# also falsely matched 11 non-webinar campaigns (promo emails that just
+# mention "webinar" in their name) that Campaign Type correctly rules out.
+# Some real exports (Quest Attendees) don't include a Campaign Type column
+# at all, though, so the name pattern stays as the fallback for those.
 _WEBINAR_CAMPAIGN_PATTERN = re.compile(r"webinar|\.wbn\.", re.IGNORECASE)
 
-# Seen in the same export: "MKT.AIQ.2025.Subscribe FDA Today Food.EM.Food
-# Webinar" is a newsletter-signup campaign, not a webinar one, despite
-# ending in "Food Webinar" -- but that's ONE observed example, not a
-# confirmed convention the way the webinar pattern is. Treat this as a
-# starting heuristic to verify against a real newsletter-specific export
-# before leaning on it the same way.
+# Confirmed against the same 55k-row export: "Subscribe" (e.g. "Subscribe
+# FDA Today", "Subscribe EMA Today", "Subscribe Periodic") is a robust,
+# 5-years-consistent naming convention for newsletter-signup campaigns
+# across every channel that drives them (landing pages, email, paid
+# search, social, tradeshow QR codes) -- thousands of matching real rows,
+# no observed false positives. Originally flagged as a one-example
+# heuristic; now confirmed high-confidence the same way the webinar
+# pattern is.
 _NEWSLETTER_SIGNUP_CAMPAIGN_PATTERN = re.compile(r"subscribe", re.IGNORECASE)
 
 # Member Status values that mean the contact actually showed up, not just
@@ -147,14 +158,23 @@ def get_recent_engagements(company, grouped, top_n=3):
     return [e for e, _ in dated[:top_n]]
 
 
+def _is_webinar_campaign(engagement):
+    """Campaign Type is the authoritative signal when the export includes
+    it (see _WEBINAR_CAMPAIGN_PATTERN's comment) -- only fall back to the
+    name pattern when that column is missing from this export."""
+    campaign_type = engagement.get("campaign_type")
+    if campaign_type:
+        return campaign_type == "Webinar"
+    return bool(_WEBINAR_CAMPAIGN_PATTERN.search(engagement.get("campaign_name") or ""))
+
+
 def has_attended_webinar(company, grouped):
     """True if anyone at this company has actually attended (live or
     on-demand) an AgencyIQ webinar -- an RSVP/"Filled Out Form" with no
     attendance doesn't count. Company-level, same exact-match reasoning as
     get_recent_engagements."""
     return any(
-        _WEBINAR_CAMPAIGN_PATTERN.search(e.get("campaign_name") or "") and e.get("member_status") in _ATTENDED_STATUSES
-        for e in grouped.get(company, [])
+        _is_webinar_campaign(e) and e.get("member_status") in _ATTENDED_STATUSES for e in grouped.get(company, [])
     )
 
 

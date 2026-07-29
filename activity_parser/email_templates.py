@@ -20,10 +20,13 @@ Scope, deliberate:
   campaign_parser.has_subscribed_to_newsletter /
   has_attended_webinar) -- leading with the newsletter ask (lowest
   commitment) before a webinar invite, matching the order the real intro
-  scripts themselves use. Free-trial status isn't tracked yet: that data
-  lives on Product Baskets, a different Salesforce object than anything
-  in the exports this pipeline currently parses (see
-  BDS_Best_Practices.pdf).
+  scripts themselves use. For "stalled" specifically, the choice between
+  the two real Slow Track Re-Approach scripts depends on whether the
+  closed-won revival library (revival_library.py / suggestions.py) has a
+  real precedent for this account's silence -- see suggest_email_template.
+  Free-trial status isn't tracked yet: that data lives on Product Baskets,
+  a different Salesforce object than anything in the exports this
+  pipeline currently parses (see BDS_Best_Practices.pdf).
 
 Usage:
     from email_templates import suggest_email_template
@@ -82,7 +85,11 @@ FOLLOWUP_SAMPLE_CONTENT_TEMPLATE = {
 
 # Real script -- see AIQ_Outreach_Templates_1.pdf, Slow Track Re-Approach
 # Script #1 ("Updated Pricing and Terms"). This section exists for exactly
-# this situation: an established relationship that's gone quiet.
+# this situation: an established relationship that's gone quiet. Leads
+# with "we've seen real momentum" -- use it when the revival library
+# (revival_library.py / suggestions.py) actually has a closed-won account
+# that came back from a similar silence, i.e. there's real precedent to
+# imply that with.
 SLOW_TRACK_REAPPROACH_TEMPLATE = {
     "id": "slow_track_reapproach",
     "source": "AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1",
@@ -99,6 +106,28 @@ SLOW_TRACK_REAPPROACH_TEMPLATE = {
     ),
 }
 
+# Real script -- see AIQ_Outreach_Templates_1.pdf, Slow Track Re-Approach
+# Script #3 ("Requesting Assistance in Future of Product"). Doesn't lean
+# on "we've seen this pattern before" the way Script #1 does -- asks for
+# product feedback instead. Used when the revival library has no
+# comparable closed-won precedent for this account's silence, so there's
+# nothing real to back up a "we've revived accounts like yours" framing.
+SLOW_TRACK_PRODUCT_FEEDBACK_TEMPLATE = {
+    "id": "slow_track_product_feedback",
+    "source": "AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #3",
+    "subject": "AgencyIQ Product Roadmap – your assistance?",
+    "body": (
+        "{first_name},\n\n"
+        "I hope you've all been well since we last spoke.\n\n"
+        "I am writing to share that AgencyIQ has developed some exciting enhancements from both a content "
+        "and product perspective. We are circulating our product roadmap with our current clients and wanted "
+        "to include {account} in those conversations given your earlier interest in our platform.\n\n"
+        "Pending your interest, we'd be thrilled to get your perspective as we prioritize our future "
+        "investments. If so, please let me know when you have half an hour to speak with us.\n\n"
+        "Thanks!\n[Your Name]"
+    ),
+}
+
 
 def _fill(template, first_name, account):
     return {
@@ -111,9 +140,12 @@ def _fill(template, first_name, account):
 
 def suggest_email_template(row):
     """row: a tracker.py row dict -- needs 'actionable_status', 'account',
-    'contacts' (from campaign_parser.top_contacts), and 'attended_webinar'
-    / 'subscribed_to_newsletter' (from campaign_parser.has_attended_webinar
-    / has_subscribed_to_newsletter, precomputed once in run_tracker).
+    'contacts' (from campaign_parser.top_contacts), 'attended_webinar' /
+    'subscribed_to_newsletter' (from campaign_parser.has_attended_webinar
+    / has_subscribed_to_newsletter), and 'examples' (from
+    suggestions.suggest_reengagement_examples / revival_library.py --
+    closed-won accounts whose own silence-then-revival pattern resembles
+    this one) -- all precomputed once in run_tracker.
 
     Returns None for "new"/"on_pace"/anything else -- there's nothing to
     suggest sending. Otherwise returns {id, source, subject, body} with
@@ -130,7 +162,11 @@ def suggest_email_template(row):
     account = row.get("account") or "your organization"
 
     if status == "stalled":
-        template = SLOW_TRACK_REAPPROACH_TEMPLATE
+        # Only lean on "we've revived accounts like yours" (Script #1)
+        # when the closed-won revival library actually backs that up for
+        # THIS account; otherwise use the product-feedback angle (Script
+        # #3), which doesn't presuppose a precedent that isn't there.
+        template = SLOW_TRACK_REAPPROACH_TEMPLATE if row.get("examples") else SLOW_TRACK_PRODUCT_FEEDBACK_TEMPLATE
     elif not row.get("subscribed_to_newsletter"):
         template = NEWSLETTER_INVITE_TEMPLATE
     elif not row.get("attended_webinar"):
