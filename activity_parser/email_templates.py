@@ -9,76 +9,137 @@ customization the source material already expects a human to do by hand,
 not something this tool should guess at.
 
 Scope, deliberate:
+- Food sector only. The real script library has parallel Life Sciences /
+  Food / Chemicals versions of most scripts (different newsletter names,
+  different wording -- "FDA Today" vs "FDA Today: Food" vs "The
+  Periodic"), and there's no reliable per-account vertical field in the
+  Salesforce exports this pipeline parses to auto-route between them
+  (checked: the Opportunity export has no industry/vertical column, and
+  campaign-name vertical tags only cover a minority of engagement
+  records). Rather than guess, this tool is scoped to the Food sector --
+  the team's current growth focus anyway -- and every template below uses
+  the real Food-flavored script. Feeding it non-food accounts is a
+  by-hand decision left to whoever runs it (which .mhtml exports get
+  passed in), not something this code filters for.
 - Only "never_engaged", "cooling_off", and "stalled" get a suggestion --
   "new" and "on_pace" don't need one (see staleness.py).
 - Staleness-triggered only. Event-triggered situations from the same
   script library ("they just attended a webinar," "they just got
   promoted") are a different kind of check -- they fire off a recent
-  EVENT, not an overall status -- and aren't built yet.
+  EVENT, not an overall status -- and don't fit this tool's trigger model
+  anyway: by the time an account is flagged here, enough time has passed
+  (14-21+ days, see staleness.py) that "thanks for attending yesterday's
+  webinar" would already read as stale itself.
 - Which real template gets picked, within a status, depends on whether
-  the account has subscribed to FDA Today or attended a webinar (see
-  campaign_parser.has_subscribed_to_newsletter /
-  has_attended_webinar) -- leading with the newsletter ask (lowest
-  commitment) before a webinar invite, matching the order the real intro
-  scripts themselves use. For "stalled" specifically, the choice between
-  the two real Slow Track Re-Approach scripts depends on whether the
-  closed-won revival library (revival_library.py / suggestions.py) has a
-  real precedent for this account's silence -- see suggest_email_template.
-  Free-trial status isn't tracked yet: that data lives on Product Baskets,
-  a different Salesforce object than anything in the exports this
-  pipeline currently parses (see BDS_Best_Practices.pdf).
+  the account has subscribed to FDA Today: Food or attended a webinar
+  (see campaign_parser.has_subscribed_to_newsletter / has_attended_webinar)
+  -- leading with the newsletter ask (lowest commitment) before a webinar
+  invite, matching the order the real intro scripts themselves use. A
+  cooling_off account that's already subscribed AND attended gets an
+  ordinary content follow-up; a STALLED account in that same spot gets a
+  free-trial offer instead -- the real scripts only extend a trial once a
+  relationship is nearly lost ("Thanks for subscribing to FDA and EMA
+  Today," the Food "thank you for subscribing" follow-up, and the breakup
+  email all use it as a late-stage lever, not an early one). Within
+  "stalled," the choice between the trial offer and the two Slow Track
+  Re-Approach scripts depends first on that proven-engagement signal, then
+  on whether the closed-won revival library (revival_library.py /
+  suggestions.py) has a real precedent for this account's silence -- see
+  suggest_email_template. Current trial-usage status still isn't tracked
+  (that data lives on Product Baskets, a different Salesforce object than
+  anything in the exports this pipeline currently parses -- see
+  BDS_Best_Practices.pdf), so this can offer a trial to someone already on
+  one; a real, known limitation, same shape as the other gaps above.
 
 Usage:
     from email_templates import suggest_email_template
     suggest_email_template(row)  # row is a tracker.py row dict
 """
 
-# Real script, lightly trimmed to the parts we can fill from real data --
-# see AgencyIQ_Email_Templates_2.pdf, "4. Newsletter Invite – LS."
+# Real script -- see AgencyIQ_Email_Templates_2.pdf, "3. Food Newsletter
+# Invite," lightly trimmed to the parts we can fill from real data (the
+# source script also pastes in a real recent edition, which this tool
+# can't fabricate).
 NEWSLETTER_INVITE_TEMPLATE = {
     "id": "newsletter_invite",
-    "source": "AgencyIQ_Email_Templates_2.pdf — Newsletter Invite (LS)",
-    "subject": "AgencyIQ | Regulatory insights",
+    "source": "AgencyIQ_Email_Templates_2.pdf — Food Newsletter Invite",
+    "subject": "FDA Today: Food – Clear, Expert Insights for Food Regulatory Professionals",
     "body": (
         "Hi {first_name},\n\n"
-        "I'm reaching out from AgencyIQ with a resource I thought might be helpful in your role at {account}. "
-        "Our free regulatory newsletter, FDA Today, provides a quick roundup of key developments from the FDA.\n\n"
-        "Hope it saves time and helps with planning ahead.\n\n"
+        "Based on your role at {account}, I thought it might be useful to share a resource many food regulatory "
+        "professionals use to stay current.\n\n"
+        "AgencyIQ publishes a newsletter by regulatory specialists focused on food policy and oversight. It "
+        "covers FDA and USDA developments, state-level actions, and emerging compliance considerations, all "
+        "designed to help teams anticipate changes and prioritize what matters most.\n\n"
+        "You can opt in to receive future issues if it aligns with your work by subscribing here.\n\n"
         "Best,\n[Your Name]"
     ),
 }
 
 # Real script -- see MASTER_KEY_BD_Scripts.pdf, "Webinar Invite" (Chemicals
-# section, generalizes across verticals). BDS_Best_Practices.pdf says
-# invites should go out roughly a week ahead of the date.
+# section). The real library uses this identical structure across
+# verticals with just the industry noun swapped (the same pattern the real
+# Newsletter Invite and "Congratulations on your new role" scripts use for
+# their own LS/Food variants), so this substitutes "food" for "chemicals"
+# rather than inventing new wording. BDS_Best_Practices.pdf says invites
+# should go out roughly a week ahead of the date.
 WEBINAR_INVITE_TEMPLATE = {
     "id": "webinar_invite",
-    "source": "MASTER_KEY_BD_Scripts.pdf — Webinar Invite",
+    "source": "MASTER_KEY_BD_Scripts.pdf — Webinar Invite (Food adaptation)",
     "subject": "AgencyIQ Webinar Invite",
     "body": (
         "Hi {first_name},\n\n"
-        "I wanted to personally invite you to AgencyIQ's upcoming webinar on [DATE & TIME], titled [WEBINAR "
-        "TITLE]. Our research team will review recent developments relevant to {account} and take live "
-        "questions.\n\n"
+        "Staying ahead of the curve on food regulatory policy has become much less predictable. That's why I "
+        "wanted to personally invite you to AgencyIQ's upcoming webinar at [DATE & TIME], titled [WEBINAR "
+        "TITLE].\n\n"
+        "Our food regulatory team will review recent developments relevant to {account} and take your questions "
+        "live.\n\n"
         "You can sign up here: [LINK]\n\n"
         "All the best,\n[Your Name]"
     ),
 }
 
-# Real script -- see AIQ_Outreach_Templates_1.pdf, Follow-up Script #2
-# ("Sample Content"). For an account that already has the newsletter and
-# has attended a webinar -- an ordinary continuing touch, not an
-# escalation.
+# Real script -- see AIQ_Outreach_Templates_1.pdf's "Sample Content"
+# follow-up, adapted with the food-specific content-share pattern from the
+# real "FDA Revokes 52 Food Standards" example (Food scripts, MASTER_KEY
+# BD Scripts) rather than the source's "[topic/therapeutic area]" LS
+# framing. For an account that already has the newsletter and has
+# attended a webinar but hasn't reached the trial-ready bar yet.
 FOLLOWUP_SAMPLE_CONTENT_TEMPLATE = {
     "id": "followup_sample_content",
-    "source": "AIQ_Outreach_Templates_1.pdf — Follow-up Script #2 (Sample Content)",
-    "subject": "Is shifting FDA policy on [topic] impacting your regulatory strategy?",
+    "source": "AIQ_Outreach_Templates_1.pdf — Follow-up Script #2 (Sample Content, Food adaptation)",
+    "subject": "Is a recent FDA or USDA food policy change impacting your regulatory strategy?",
     "body": (
         "{first_name} —\n\n"
-        "I was wondering if shifting FDA guidance and policy on [topic] has been driving frequent changes in "
-        "regulatory strategy at {account}.\n\n"
+        "I was wondering if a recent food regulatory development has been driving changes in strategy at "
+        "{account}.\n\n"
         "If so, I'm writing to see if you have 30 minutes to connect this [day of week] at [time] to hear how "
-        "AgencyIQ research and monitoring on [topic] can support your team.\n\n"
+        "AgencyIQ's food regulatory research and monitoring can support your team.\n\n"
+        "Best,\n[Your Name]"
+    ),
+}
+
+# Real script -- see MASTER_KEY_BD_Scripts.pdf, "Thanks for subscribing to
+# EMA and FDA Today," adapted to the Food newsletter and trimmed to the
+# parts we can fill from real data (the source also pastes in specific
+# real analyses this tool can't fabricate). The real library only extends
+# a trial offer once someone's shown real engagement (subscribed AND
+# attended a webinar here) -- never as a first move -- matching this
+# script's own framing and the Food "thank you for subscribing" follow-up
+# ("if you like our newsletter after reading a few, we'd be happy to show
+# you...guest access").
+TRIAL_OFFER_TEMPLATE = {
+    "id": "trial_offer",
+    "source": "MASTER_KEY_BD_Scripts.pdf — Thanks for Subscribing (Food adaptation, trial offer)",
+    "subject": "More from AgencyIQ, beyond FDA Today: Food",
+    "body": (
+        "Hi {first_name},\n\n"
+        "Thanks for subscribing to FDA Today: Food and for attending one of our webinars. These are a great way "
+        "to stay informed, but they represent just a fraction of the food regulatory intelligence our team "
+        "produces each week for companies like {account}.\n\n"
+        "If it would help, I'd be happy to set you up with a complimentary trial login to explore our full "
+        "platform coverage -- FDA, USDA, EPA, and state-level food developments in one place.\n\n"
+        "Are there any current projects you're focused on where we could share deeper analysis?\n\n"
         "Best,\n[Your Name]"
     ),
 }
@@ -160,18 +221,31 @@ def suggest_email_template(row):
     contacts = row.get("contacts") or []
     first_name = contacts[0].get("first_name") or "there" if contacts else "there"
     account = row.get("account") or "your organization"
+    subscribed = row.get("subscribed_to_newsletter")
+    attended = row.get("attended_webinar")
 
     if status == "stalled":
-        # Only lean on "we've revived accounts like yours" (Script #1)
-        # when the closed-won revival library actually backs that up for
-        # THIS account; otherwise use the product-feedback angle (Script
-        # #3), which doesn't presuppose a precedent that isn't there.
-        template = SLOW_TRACK_REAPPROACH_TEMPLATE if row.get("examples") else SLOW_TRACK_PRODUCT_FEEDBACK_TEMPLATE
-    elif not row.get("subscribed_to_newsletter"):
+        if subscribed and attended:
+            # Proven engagement that still went dark -- the real scripts'
+            # own trial-offer trigger, and a stronger card to play than
+            # another generic re-approach.
+            template = TRIAL_OFFER_TEMPLATE
+        elif row.get("examples"):
+            # Only lean on "we've revived accounts like yours" when the
+            # closed-won revival library actually backs that up for THIS
+            # account.
+            template = SLOW_TRACK_REAPPROACH_TEMPLATE
+        else:
+            template = SLOW_TRACK_PRODUCT_FEEDBACK_TEMPLATE
+    elif not subscribed:
         template = NEWSLETTER_INVITE_TEMPLATE
-    elif not row.get("attended_webinar"):
+    elif not attended:
         template = WEBINAR_INVITE_TEMPLATE
     else:
+        # Proven engagement, but only cooling off (not yet stalled) --
+        # an ordinary continuing touch. The bigger trial-offer incentive
+        # is reserved for stalled (see above): the real breakup email only
+        # extends a trial once a relationship is nearly lost, not this early.
         template = FOLLOWUP_SAMPLE_CONTENT_TEMPLATE
 
     return _fill(template, first_name, account)

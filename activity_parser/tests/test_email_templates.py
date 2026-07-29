@@ -20,19 +20,28 @@ class TestSuggestEmailTemplate:
         assert suggest_email_template(row("on_pace")) is None
 
     def test_stalled_with_precedent_gets_slow_track_reapproach(self):
-        # Regardless of newsletter/webinar status -- an established
-        # relationship gone quiet, with a real closed-won revival example
-        # backing it up, gets the "we've seen this before" re-approach
-        # script, not a cold newsletter pitch.
+        # Not yet subscribed/attended (so the trial-offer branch doesn't
+        # apply) -- an established relationship gone quiet, with a real
+        # closed-won revival example backing it up, gets the "we've seen
+        # this before" re-approach script, not a cold newsletter pitch.
         result = suggest_email_template(row("stalled", subscribed=False, attended=False))
         assert result["id"] == "slow_track_reapproach"
 
     def test_stalled_without_precedent_gets_product_feedback(self):
-        # No matching closed-won revival example for this account -- don't
-        # imply a precedent that isn't there; ask for product feedback
-        # instead (a different real script, not generated copy).
-        result = suggest_email_template(row("stalled", examples=[]))
+        # No matching closed-won revival example for this account, and
+        # not yet subscribed/attended -- don't imply a precedent that
+        # isn't there; ask for product feedback instead (a different real
+        # script, not generated copy).
+        result = suggest_email_template(row("stalled", subscribed=False, attended=False, examples=[]))
         assert result["id"] == "slow_track_product_feedback"
+
+    def test_stalled_subscribed_and_attended_gets_trial_offer(self):
+        # Proven engagement that still went dark is a stronger card to
+        # play than another generic re-approach -- takes priority over the
+        # precedent check entirely, regardless of what's in the revival
+        # library.
+        result = suggest_email_template(row("stalled", subscribed=True, attended=True, examples=[]))
+        assert result["id"] == "trial_offer"
 
     def test_never_engaged_not_subscribed_gets_newsletter_invite(self):
         result = suggest_email_template(row("never_engaged", subscribed=False, attended=False))
