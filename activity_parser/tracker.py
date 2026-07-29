@@ -14,6 +14,11 @@ together by hand.
 Usage:
     python tracker.py "McKee=mckee.mhtml" "Noom=noom.mhtml" \\
         --library library.json --narrative-doc master.docx --nurture-senders "Anastasiia Romanova" "Noah Hess"
+
+    # Tag verticals once in a file instead of retyping NAME:VERTICAL= every run:
+    python tracker.py "McKee=mckee.mhtml" "Kura=kura.mhtml" \\
+        --library library.json --account-verticals verticals.json
+    # verticals.json: {"Kura Oncology Inc": "life_sciences"} -- accounts not listed default to "food".
 """
 
 import argparse
@@ -26,7 +31,7 @@ from email_templates import TEMPLATE_LIBRARIES, suggest_email_template
 from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from playbook import next_step_display
-from suggestion_history import record_attempt
+from suggestion_history import record_suggestion, resolve_attempt_count
 from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, suggest_reengagement_examples
 
 # How far back from an account's most recent activity to look when checking
@@ -160,12 +165,17 @@ def run_tracker(
     account's top real contacts (top_contacts), exact-match only in both
     cases (see campaign_parser.get_recent_engagements for why).
     suggestion_history: optional dict from suggestion_history.load_history
-    — mutated in place with each account's current status/attempt count so
-    the caller can persist it (see --suggestion-history); when omitted,
-    every stalled suggestion is treated as a first attempt, same as before
-    this existed. Returns a list of row dicts, sorted most-urgent-and-
-    actionable-first; accounts confirmed already closed sort last
-    regardless of how stale their activity looks.
+    — mutated in place with each account's current status/attempt count/
+    last-suggested-subject so the caller can persist it (see
+    --suggestion-history); when omitted, every stalled suggestion is
+    treated as a first attempt, same as before this existed. An account's
+    attempt count only advances when a LATER logged activity's subject
+    line actually matches what was suggested last time (see
+    suggestion_history.py) — otherwise it keeps re-suggesting the same
+    email rather than assuming an unsent suggestion was sent and ignored.
+    Returns a list of row dicts, sorted most-urgent-and-actionable-first;
+    accounts confirmed already closed sort last regardless of how stale
+    their activity looks.
 
     Each row also carries "staleness" and "examples" as top-level aliases
     of result["staleness"]/result["examples"] (same dicts, not copies), a
@@ -219,9 +229,20 @@ def run_tracker(
             "vertical": vertical,
         }
         if suggestion_history is not None:
-            row["stalled_attempt_count"] = record_attempt(suggestion_history, account_name, actionable_status)
+            row["stalled_attempt_count"] = resolve_attempt_count(
+                suggestion_history, account_name, actionable_status, records, as_of=as_of
+            )
         row["next_step_display"] = next_step_display(row)
         row["suggested_email"] = suggest_email_template(row)
+        if suggestion_history is not None:
+            record_suggestion(
+                suggestion_history,
+                account_name,
+                actionable_status,
+                row.get("stalled_attempt_count", 0),
+                row["suggested_email"],
+                as_of=as_of,
+            )
         rows.append(row)
 
     rows.sort(key=_urgency_sort_key)
@@ -338,7 +359,15 @@ def main():
         metavar="NAME[:VERTICAL]=PATH",
         help="Live accounts to check, as NAME=path/to/export.mhtml. Optionally tag the account's vertical "
         "(see email_templates.py) as NAME:VERTICAL=path/to/export.mhtml, e.g. 'Kura:life_sciences=kura.mhtml' "
-        "-- omit for the default, 'food'. Valid verticals: food, life_sciences",
+        "-- omit to fall back to --account-verticals, or 'food' if that's also not set. Valid verticals: "
+        "food, life_sciences",
+    )
+    parser.add_argument(
+        "--account-verticals",
+        help="Optional path to a JSON file mapping account name to vertical (\"food\" or \"life_sciences\"), e.g. "
+        '{"Kura Oncology Inc": "life_sciences"} -- set an account\'s vertical here once instead of retyping '
+        "NAME:VERTICAL= on every run. An inline :VERTICAL tag in the account spec above still overrides this "
+        "per invocation.",
     )
     parser.add_argument("--library", required=True, help="Path to a revival library JSON file (from revival_library.py)")
     parser.add_argument("--narrative-doc", help="Optional path to the closed-won master .docx, for curator notes")
@@ -396,15 +425,28 @@ def main():
 
         campaign_by_company = group_by_company(parse_campaign_report(args.campaign_report))
 
+    account_verticals = {}
+    if args.account_verticals:
+        with open(args.account_verticals, encoding="utf-8") as f:
+            account_verticals = json.load(f)
+        for name, vertical in account_verticals.items():
+            if vertical not in TEMPLATE_LIBRARIES:
+                parser.error(
+                    f"unknown vertical {vertical!r} for {name!r} in {args.account_verticals} -- "
+                    f"valid verticals: {', '.join(TEMPLATE_LIBRARIES)}"
+                )
+
     account_exports = []
     for spec in args.accounts:
         if "=" not in spec:
             parser.error(f"expected NAME=PATH or NAME:VERTICAL=PATH, got: {spec}")
         name_part, path = spec.split("=", 1)
         if ":" in name_part:
+            # Explicit per-invocation tag always wins over --account-verticals.
             name, vertical = name_part.split(":", 1)
         else:
-            name, vertical = name_part, "food"
+            name = name_part
+            vertical = account_verticals.get(name, "food")
         if vertical not in TEMPLATE_LIBRARIES:
             parser.error(f"unknown vertical {vertical!r} for {name!r} -- valid verticals: {', '.join(TEMPLATE_LIBRARIES)}")
         account_exports.append((name, path, vertical))
