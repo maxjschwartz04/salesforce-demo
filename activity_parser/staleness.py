@@ -1,7 +1,7 @@
 """
-Flags whether an account looks "stalled" — quiet for meaningfully longer than
-its own normal outreach rhythm — from a parsed, filtered, chronologically
-sorted activity list (see parser.py).
+Flags whether an account looks "stalled" — quiet for longer than the team's
+real outreach cadence — from a parsed, filtered, chronologically sorted
+activity list (see parser.py).
 
 Usage:
     python staleness.py mckee.mhtml
@@ -14,49 +14,33 @@ from datetime import date, datetime
 
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 
-# Need at least this many distinct days of activity to trust a median gap.
-# Below this, one or two touches don't tell you anything about "normal"
-# rhythm, so status becomes "new" or "never_engaged" (see NEW_LEAD_GRACE_DAYS)
-# rather than guessing at one.
+# Need at least this many distinct days of activity to call this an
+# established relationship. Below this, one or two touches don't tell you
+# anything about a rhythm, so status becomes "new" or "never_engaged" (see
+# NEW_LEAD_GRACE_DAYS) rather than guessing at one. This is purely a count
+# threshold -- it's about whether real back-and-forth happened at all, not
+# about timing, so it stays independent of the flat day thresholds below.
 MIN_ENGAGEMENT_DAYS = 3
 
-# How many multiples of the account's own typical gap the current silence
-# has to exceed before we call it "stalled" rather than normal variance.
-# Sales cadences wobble around their median (weekends, someone's on PTO, a
-# prospect is slow to reply) so 2x alone is too trigger-happy — a single
-# skipped week on a weekly cadence would already read as "stalled." 3x means
-# the account has gone quiet for a full extra cycle beyond its own rhythm,
-# which is a much stronger, less noisy signal that something changed.
-STALLED_MULTIPLIER = 3
+# Flat day thresholds for an established relationship (3+ real touches) --
+# NOT relative to that account's own historical rhythm. Explicit choice,
+# not an oversight: relative thresholds let a naturally slow-cadence
+# account hide behind its own history, but the real BDS standard is a flat
+# company-wide cadence (BDS_Best_Practices: touch every ~48 hours, 5-7
+# touches over a 2-3 week cycle before recycling) -- "it's been a couple
+# weeks" is a real problem regardless of how that specific account has
+# historically been treated.
+COOLING_OFF_DAYS = 14
+STALLED_DAYS = 21
 
-# Below the stalled threshold but still running longer than usual: a softer,
-# earlier signal than "stalled" so an account doesn't jump straight from
-# "on pace" to "needs attention" with no warning in between. 1.5x is closer
-# to STALLED_MULTIPLIER than to on-pace on purpose — this is meant to flag
-# "starting to drift," not "any silence at all."
-COOLING_MULTIPLIER = 1.5
-
-# Flat backstop, independent of the account's own rhythm: once total silence
-# crosses this many days, flag it regardless of how slow-paced the account
-# normally is. The multiplier-based thresholds above are all *relative* to
-# the account's own typical gap, so a naturally slow-cadence account (e.g.
-# one historically touched once a year) could go silent forever and never
-# trip "stalled." This catches that case, and also doubles as a distinct
-# "gone quiet a long time ago" signal within the stalled population, since
-# "just went quiet last month" and "silent for two years" both landing in
-# the same bucket isn't a useful distinction for a rep to act on.
-DORMANT_DAYS = 365
-
-# Below MIN_ENGAGEMENT_DAYS there's no rhythm to judge silence against, but
+# Below MIN_ENGAGEMENT_DAYS there's no established relationship yet, but
 # that bucket was hiding two very different accounts under one label: one
 # just added with a single recent touch (nothing wrong, just early), and
-# one touched once or twice a while ago and never followed up on (a real,
-# actionable gap -- but a DIFFERENT one than "went quiet," since there was
-# never a relationship to re-engage in the first place). 30 days is one
-# normal follow-up cycle -- most real on-pace accounts here run 10-40 day
-# cadences, so a lead with no second touch inside a month has had enough
-# time for one and didn't get it.
-NEW_LEAD_GRACE_DAYS = 30
+# one touched once or twice and never followed up on (a real, actionable
+# gap -- but a different one than "went quiet," since there was never a
+# relationship here to re-engage). 7 days -- one BDS touch cycle -- is the
+# line between them.
+NEW_LEAD_GRACE_DAYS = 7
 
 
 def _engagement_days(records):
@@ -64,17 +48,20 @@ def _engagement_days(records):
 
     Salesforce exports often log several activities within seconds/minutes
     of each other (an email plus its auto-logged send confirmation, bot
-    logging, etc.). Left in, those near-duplicate timestamps crush the
-    median gap toward ~0-1 days and make almost any silence look "stalled."
-    Deduping to distinct days gives a median that actually reflects how
-    often the rep engages, not how many records got logged per engagement.
+    logging, etc.). Left in, those near-duplicate timestamps would crush a
+    median gap toward ~0-1 days. Deduping to distinct days keeps
+    typical_gap_days meaningful for display and revival-precedent matching
+    even though it no longer drives the status itself (see COOLING_OFF_DAYS
+    / STALLED_DAYS above).
     """
     dates = (parse_last_modified_date(r.get("last_modified_date")) for r in records)
     return sorted({d.date() for d in dates if d is not None})
 
 
 def assess_staleness(records, as_of=None):
-    """Compare an account's current silence to its own historical rhythm.
+    """Compare an account's current silence to the team's flat outreach
+    cadence (COOLING_OFF_DAYS / STALLED_DAYS) -- not to that account's own
+    historical rhythm.
 
     records: a filtered, chronologically-sorted activity list (the output of
         parser.filter_and_sort_activities), or any list of activity dicts
@@ -85,13 +72,17 @@ def assess_staleness(records, as_of=None):
 
     Returns a dict with:
         typical_gap_days      - median days between engagement days, or None
-                                 if there isn't enough history
+                                 if there isn't enough history. Descriptive
+                                 only now (shown to a rep, used to rank
+                                 revival-library precedent matches) -- does
+                                 NOT drive status; see module docstring.
         days_since_last_touch - whole days since the most recent activity
         last_touch_date       - ISO date of the most recent activity, or None
-        threshold_days         - the silence threshold that trips "stalled", or None
-        cooling_threshold_days - the (lower) silence threshold that trips
-                                 "cooling_off", or None
-        status                 - "dormant" | "stalled" | "cooling_off" | "on_pace" |
+        threshold_days         - the flat silence threshold that trips
+                                 "stalled" (STALLED_DAYS), or None
+        cooling_threshold_days - the flat silence threshold that trips
+                                 "cooling_off" (COOLING_OFF_DAYS), or None
+        status                 - "stalled" | "cooling_off" | "on_pace" |
                                  "never_engaged" | "new" | "no_activity"
     """
     if as_of is None:
@@ -112,36 +103,23 @@ def assess_staleness(records, as_of=None):
 
     last_touch = engagement_days[-1]
     days_since_last_touch = (as_of - last_touch).days
-    typical_gap_days = threshold_days = cooling_threshold_days = None
+    typical_gap_days = None
 
     if len(engagement_days) < MIN_ENGAGEMENT_DAYS:
-        # Not enough history to trust a median gap. Three possible verdicts,
-        # checked in order from most to least stale:
-        #   - past the flat DORMANT_DAYS backstop -> "dormant" (same as the
-        #     established-rhythm case; a sparse account silent over a year
-        #     shouldn't sit in limbo just because it lacks a computed gap)
-        #   - silent longer than one normal follow-up cycle but under a
-        #     year -> "never_engaged": a real, actionable gap, but not the
-        #     same one as "stalled" -- there's no relationship here that
-        #     went quiet, there was never a second touch to begin with
-        #   - otherwise -> "new": too recently touched to have an opinion
-        if days_since_last_touch > DORMANT_DAYS:
-            status = "dormant"
-        elif days_since_last_touch > NEW_LEAD_GRACE_DAYS:
-            status = "never_engaged"
-        else:
-            status = "new"
+        # No established relationship yet -- "new" if there's still time
+        # left in one normal touch cycle, "never_engaged" past that. No
+        # further escalation past this: a lead touched once, years ago,
+        # just stays "never_engaged" rather than a separate tier, so
+        # sorting (see tracker._urgency_sort_key) is what keeps truly
+        # ancient ones from crowding out ones that just crossed the line.
+        status = "new" if days_since_last_touch <= NEW_LEAD_GRACE_DAYS else "never_engaged"
     else:
         gaps = [(engagement_days[i + 1] - engagement_days[i]).days for i in range(len(engagement_days) - 1)]
         typical_gap_days = statistics.median(gaps)
-        threshold_days = typical_gap_days * STALLED_MULTIPLIER
-        cooling_threshold_days = typical_gap_days * COOLING_MULTIPLIER
 
-        if days_since_last_touch > DORMANT_DAYS:
-            status = "dormant"
-        elif days_since_last_touch > threshold_days:
+        if days_since_last_touch > STALLED_DAYS:
             status = "stalled"
-        elif days_since_last_touch > cooling_threshold_days:
+        elif days_since_last_touch > COOLING_OFF_DAYS:
             status = "cooling_off"
         else:
             status = "on_pace"
@@ -150,8 +128,8 @@ def assess_staleness(records, as_of=None):
         "typical_gap_days": typical_gap_days,
         "days_since_last_touch": days_since_last_touch,
         "last_touch_date": last_touch.isoformat(),
-        "threshold_days": threshold_days,
-        "cooling_threshold_days": cooling_threshold_days,
+        "threshold_days": STALLED_DAYS,
+        "cooling_threshold_days": COOLING_OFF_DAYS,
         "status": status,
     }
 
@@ -174,19 +152,11 @@ def format_staleness_summary(assessment, account_name=None):
             f"(last touch {assessment['days_since_last_touch']} days ago) — NEVER ENGAGED."
         )
 
-    if assessment["status"] == "dormant" and assessment["typical_gap_days"] is None:
-        return (
-            f"{label}not enough history to establish a normal rhythm, but silent for "
-            f"{assessment['days_since_last_touch']} days ({DORMANT_DAYS}+ day backstop) — DORMANT."
-        )
-
-    flag = {"stalled": "STALLED", "cooling_off": "COOLING OFF", "dormant": "DORMANT"}.get(
-        assessment["status"], "ON PACE"
-    )
+    flag = {"stalled": "STALLED", "cooling_off": "COOLING OFF"}.get(assessment["status"], "ON PACE")
+    gap_note = f"typical gap {assessment['typical_gap_days']:.1f} days | " if assessment["typical_gap_days"] else ""
     return (
-        f"{label}typical gap {assessment['typical_gap_days']:.1f} days | "
-        f"last touch {assessment['days_since_last_touch']} days ago "
-        f"(threshold {assessment['threshold_days']:.1f} days) | {flag}"
+        f"{label}{gap_note}last touch {assessment['days_since_last_touch']} days ago "
+        f"(threshold {assessment['threshold_days']} days) | {flag}"
     )
 
 

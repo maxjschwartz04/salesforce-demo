@@ -12,16 +12,6 @@ def stalled_records():
     ]
 
 
-def dormant_records():
-    """5-day rhythm, then silence stretching past the flat DORMANT_DAYS
-    backstop -> dormant as of 2026-04-01."""
-    return [
-        {"last_modified_date": "1/1/2024, 12:00 PM"},
-        {"last_modified_date": "1/6/2024, 12:00 PM"},
-        {"last_modified_date": "1/11/2024, 12:00 PM"},
-    ]
-
-
 def library_moment(account, gap_days, typical_gap_days, source="raw_export"):
     return {
         "account": account,
@@ -78,11 +68,3 @@ class TestSuggestReengagementExamples:
         library = [library_moment(f"Account {i}", gap_days=30 + i, typical_gap_days=5) for i in range(10)]
         result = suggest_reengagement_examples(stalled_records(), library, as_of=date(2026, 4, 1), top_n=2)
         assert len(result["examples"]) == 2
-
-    def test_dormant_gets_examples_same_as_stalled(self):
-        # Dormant needs re-engagement ideas at least as much as stalled --
-        # arguably more -- so it must not be silently excluded.
-        library = [library_moment("Close Match", gap_days=30, typical_gap_days=5)]
-        result = suggest_reengagement_examples(dormant_records(), library, as_of=date(2026, 4, 1))
-        assert result["staleness"]["status"] == "dormant"
-        assert result["examples"] != []

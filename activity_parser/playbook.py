@@ -36,10 +36,10 @@ example's account/subject/response-time), so repeating it here would just
 say the same thing twice. next_step_display() decides, per account, which
 of three things to show: the raw note as-is where it's still trustworthy
 (on_pace, and never_engaged if a plan happens to exist), the blended
-sentence above where a relationship went quiet (cooling_off/stalled/
-dormant), or a distinct first-outreach prompt where there was never a
-relationship to begin with (never_engaged with no logged plan) — never
-more than one of the three, since the blended sentence already quotes the
+sentence above where a relationship went quiet (cooling_off/stalled), or a
+distinct first-outreach prompt where there was never a relationship to
+begin with (never_engaged with no logged plan) — never more than one of
+the three, since the blended sentence already quotes the
 raw note verbatim.
 
 Usage:
@@ -134,7 +134,7 @@ STILL_MARKETING_ENGAGED_CLAUSE = (
 # (the precedent_only phrasing above) -- that implies a relationship that
 # went quiet, which isn't what happened here. There's also no revival
 # precedent to speak of: suggest_reengagement_examples only builds examples
-# for "stalled"/"dormant," so this account never gets any.
+# for "stalled," so this account never gets any.
 FIRST_OUTREACH_MESSAGE = "No real conversation on file yet — worth a first outreach."
 
 
@@ -197,11 +197,11 @@ def next_step_display(row):
 
       - "on_pace": the account is being touched on its own normal rhythm,
         so the rep's raw note is still probably current — show it as-is.
-      - "cooling_off" / "stalled" / "dormant": the note is a snapshot from
-        whenever the account was last touched, which by definition is
-        longer ago than normal — show the blended one-sentence version
-        instead. That sentence already quotes the raw note verbatim, so
-        showing both would just repeat the same text twice.
+      - "cooling_off" / "stalled": the note is a snapshot from whenever the
+        account was last touched, which by definition is longer ago than
+        normal — show the blended one-sentence version instead. That
+        sentence already quotes the raw note verbatim, so showing both
+        would just repeat the same text twice.
       - "never_engaged": no established relationship to judge a note's
         staleness against, so a logged plan (rare, but possible) is shown
         as-is like on_pace. With no logged plan, show FIRST_OUTREACH_MESSAGE
@@ -222,7 +222,7 @@ def next_step_display(row):
             return {"mode": "raw", "text": next_step}
         return {"mode": "first_outreach", "text": FIRST_OUTREACH_MESSAGE}
 
-    if status in ("cooling_off", "stalled", "dormant"):
+    if status in ("cooling_off", "stalled"):
         blended = suggest_next_step(row)
         return {"mode": "blended", "text": blended} if blended else {"mode": "none", "text": None}
 

@@ -199,16 +199,6 @@ class TestNextStepDisplay:
         result = next_step_display(row)
         assert result["mode"] == "blended"
 
-    def test_dormant_shows_blended_not_raw(self):
-        row = {
-            "actionable_status": "dormant",
-            "opportunity_status": {"open_next_steps": ["confirm budget by June"]},
-            "examples": [],
-            "staleness": {"days_since_last_touch": 400},
-        }
-        result = next_step_display(row)
-        assert result["mode"] == "blended"
-
     def test_never_engaged_with_logged_plan_shows_raw(self):
         # No established relationship to judge the note's staleness against
         # -- if a rep did log a plan, trust it, same as on_pace.

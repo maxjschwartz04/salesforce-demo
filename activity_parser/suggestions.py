@@ -58,13 +58,14 @@ def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DE
     (from the closed-won master doc) surfaced alongside a matching example,
     not just the mechanically-derived stats.
 
-    Runs the staleness check; if the account isn't stalled or dormant,
-    returns that status with no examples (there's nothing to suggest
-    re-engaging about). If it is, ranks every library moment by how closely
-    its gap-vs-typical-rhythm ratio matches the live account's own ratio, and
-    returns the top `top_n` closest matches. ("dormant" is silence past the
-    flat DORMANT_DAYS backstop, on top of "stalled" — see staleness.py — and
-    gets examples too, since it needs re-engagement ideas at least as much.)
+    Runs the staleness check; if the account isn't stalled, returns that
+    status with no examples (there's nothing to suggest re-engaging about).
+    If it is, ranks every library moment by how closely its
+    gap-vs-typical-rhythm ratio matches the live account's own ratio, and
+    returns the top `top_n` closest matches. (typical_gap_days is still
+    computed for a stalled account even though it no longer determines the
+    status itself — see staleness.py — so this ratio-based matching still
+    works the same way it always did.)
     """
     lessons_by_account = lessons_by_account or {}
     assessment = assess_staleness(records, as_of=as_of)
@@ -79,7 +80,7 @@ def suggest_reengagement_examples(records, revival_library, as_of=None, top_n=DE
         "examples": [],
     }
 
-    if assessment["status"] not in ("stalled", "dormant"):
+    if assessment["status"] != "stalled":
         return result
 
     live_ratio = _gap_ratio(assessment["days_since_last_touch"], assessment["typical_gap_days"])
@@ -126,7 +127,7 @@ SOURCE_LABELS = {
 def format_suggestions_summary(result, account_name=None):
     lines = [format_staleness_summary(result["staleness"], account_name)]
 
-    if result["staleness"]["status"] not in ("stalled", "dormant"):
+    if result["staleness"]["status"] != "stalled":
         return lines[0]
 
     n = result["library_account_count"]

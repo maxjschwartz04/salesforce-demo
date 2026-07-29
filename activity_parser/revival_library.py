@@ -22,9 +22,21 @@ import statistics
 import sys
 
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
-from staleness import MIN_ENGAGEMENT_DAYS, STALLED_MULTIPLIER
+from staleness import MIN_ENGAGEMENT_DAYS
 
 EXCERPT_LENGTH = 220
+
+# How many multiples of THIS account's own typical gap a silence has to
+# exceed to count as a real revival moment worth mining. Deliberately
+# relative, and deliberately separate from staleness.py's flat live-status
+# thresholds (COOLING_OFF_DAYS/STALLED_DAYS) -- those two are answering
+# different questions. Live status asks "is this account overdue by the
+# team's flat cadence standard," which should be the same for everyone.
+# This asks "was this account's silence unusual FOR THIS ACCOUNT," which
+# has to stay relative: a normally-every-2-days account going quiet for 10
+# days is a real anomaly worth learning from; a normally-every-45-days
+# account doing the same isn't unusual at all for them.
+STALLED_MULTIPLIER = 3
 
 
 def _excerpt(record):
