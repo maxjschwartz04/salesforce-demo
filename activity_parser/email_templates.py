@@ -16,14 +16,12 @@ Scope, deliberate:
   pipeline parses (checked: the Opportunity export has no
   industry/vertical column, and campaign-name vertical tags only cover a
   minority of engagement records), so this is a by-hand tag whoever runs
-  the tool supplies per account, not something auto-detected. Chemicals
-  is NOT supported yet: the source library has real Chemicals content for
-  the newsletter and webinar invites, but nothing for the "stalled"
-  escalation ladder (Slow Track Re-Approach / Determining Interest /
-  Requesting Assistance / Last-Ditch Effort all only exist written for
-  Life Sciences) -- building a full Chemicals track would mean adapting
-  those the same deliberate way the Food versions were, and that hasn't
-  been done.
+  the tool supplies per account, not something auto-detected. There's
+  deliberately no separate "chemicals" vertical -- by team decision,
+  chemicals accounts route through "life_sciences" rather than getting
+  their own track (also handy since the source library only has real
+  Chemicals content for the newsletter and webinar invites, nothing for
+  the "stalled" escalation ladder).
 - Only "never_engaged", "cooling_off", and "stalled" get a suggestion --
   "new" and "on_pace" don't need one (see staleness.py).
 - Staleness-triggered only. Event-triggered situations from the same
