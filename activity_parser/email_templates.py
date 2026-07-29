@@ -38,30 +38,37 @@ Scope, deliberate:
   commitment) before a webinar invite, matching the order the real intro
   scripts themselves use. A cooling_off account that's already subscribed
   AND attended gets an ordinary content follow-up; a STALLED account in
-  that same spot gets a free-trial offer instead -- the real scripts only
-  extend a trial once a relationship is nearly lost ("Thanks for
-  subscribing to FDA and EMA Today," the Food "thank you for subscribing"
-  follow-up, and the breakup email all use it as a late-stage lever, not
-  an early one). Within "stalled," the choice between the trial offer and
-  the two Slow Track Re-Approach scripts depends first on that
-  proven-engagement signal, then on whether the closed-won revival
-  library (revival_library.py / suggestions.py) has a real precedent for
-  this account's silence -- see suggest_email_template. Current
-  trial-usage status still isn't tracked (that data lives on Product
-  Baskets, a different Salesforce object than anything in the exports
-  this pipeline currently parses -- see BDS_Best_Practices.pdf), so this
-  can offer a trial to someone already on one; a real, known limitation,
-  same shape as the other gaps above.
+  that same spot gets ANOTHER webinar invite rather than the free-trial
+  script, deliberately -- see the comment on that branch in
+  suggest_email_template for why (short version: the trial-offer script's
+  real opening line asserts the newsletter subscribe was recent, which
+  "subscribed" as a lifetime yes/no flag can't actually back up). The
+  trial offer is reserved for attempt 2 on that track instead, once the
+  gentler re-invite has already gone unanswered -- matching the real
+  scripts' own late-stage framing for it ("Thanks for subscribing to FDA
+  and EMA Today," the Food "thank you for subscribing" follow-up, and the
+  breakup email all use it as a late-stage lever, not an early one).
+  Within "stalled," the choice between that track and the two Slow Track
+  Re-Approach scripts depends first on the proven-engagement signal, then
+  on whether the closed-won revival library (revival_library.py /
+  suggestions.py) has a real precedent for this account's silence -- see
+  suggest_email_template. Current trial-usage status still isn't tracked
+  (that data lives on Product Baskets, a different Salesforce object than
+  anything in the exports this pipeline currently parses -- see
+  BDS_Best_Practices.pdf), so this can offer a trial to someone already on
+  one; a real, known limitation, same shape as the other gaps above.
 - Escalation for repeatedly-"stalled" accounts (see suggestion_history.py
-  and row["stalled_attempt_count"]): the real library only documents one
-  attempt-2 sequel script, and it's written specifically to follow the
-  pricing-themed Slow Track Script #1 ("...taking advantage of our
-  updated terms and pricing"). So Determining Interest only fires as
-  attempt 2 when attempt 1 actually was that pricing script; the other
-  two attempt-1 tracks (trial offer, product feedback) escalate to the
-  real, content-agnostic Last-Ditch Effort script instead, so nothing
-  ever gets suggested twice in a row verbatim. Attempt 3+ always gets the
-  breakup email, which is generic enough to follow any of the three.
+  and row["stalled_attempt_count"]): the webinar-invite track escalates to
+  the trial offer (see above); the real library documents one other
+  attempt-2 sequel script, Determining Interest, written specifically to
+  follow the pricing-themed Slow Track Script #1 ("...taking advantage of
+  our updated terms and pricing") -- so it only fires as attempt 2 when
+  attempt 1 actually was that pricing script. The product-feedback
+  attempt-1 track escalates to the real, content-agnostic Last-Ditch
+  Effort script instead, since neither it nor Determining Interest fit.
+  Nothing ever gets suggested twice in a row verbatim. Attempt 3+ always
+  gets the breakup email, which is generic enough to follow any of the
+  three tracks.
 
 Usage:
     from email_templates import suggest_email_template
@@ -481,11 +488,23 @@ def suggest_email_template(row):
     if status == "stalled":
         attempt_count = row.get("stalled_attempt_count") or 1
         # What attempt 1 was/would be, regardless of the CURRENT attempt --
-        # decides both the attempt-1 email itself and, for attempt 2,
-        # whether Determining Interest is a real match (see module
-        # docstring: it's only accurate as a sequel to slow_track_reapproach).
+        # decides both the attempt-1 email itself and, for attempt 2, which
+        # real escalation script is an accurate sequel to it.
         if subscribed and attended:
-            attempt_1_template = templates["trial_offer"]
+            # NOT trial_offer here, deliberately: that script's real
+            # opening line ("Thank you for subscribing... since you signed
+            # up") asserts the subscribe was recent, but "subscribed" is a
+            # lifetime yes/no flag with no date attached (no subscribe-date
+            # field exists in any export this pipeline parses) -- it could
+            # just as easily have happened months ago. A stalled account
+            # getting "thanks for JUST subscribing" reads as out of touch
+            # regardless of whether that claim happens to be true. The
+            # webinar invite makes no claim about the past at all --
+            # purely forward-looking ("upcoming webinar") -- so it's safe
+            # to lead with regardless of how long ago they actually
+            # engaged, while still reflecting that they're a genuinely
+            # engaged contact, not a cold one.
+            attempt_1_template = templates["webinar_invite"]
         elif row.get("examples"):
             attempt_1_template = templates["slow_track_reapproach"]
         else:
@@ -497,16 +516,23 @@ def suggest_email_template(row):
             # than a third variation on "let's reconnect."
             template = BREAKUP_TEMPLATE
         elif attempt_count == 2:
-            if attempt_1_template["id"] == "slow_track_reapproach":
+            if attempt_1_template["id"] == "webinar_invite":
+                # The gentle re-invite didn't land -- now lean on the
+                # stronger, proven-engagement incentive (real script,
+                # reserved for exactly this point in the real library:
+                # "only extend a trial once a relationship is nearly
+                # lost," not as a first move).
+                template = templates["trial_offer"]
+            elif attempt_1_template["id"] == "slow_track_reapproach":
                 # Attempt 1 raised pricing -- this is its documented real
                 # sequel.
                 template = templates["determining_interest"]
             else:
-                # Attempt 1 was the trial offer or product feedback --
-                # neither raised pricing, so Determining Interest would
-                # reference a conversation that never happened. Fall back
-                # to the real, content-agnostic Last-Ditch Effort script
-                # instead of repeating attempt 1 verbatim.
+                # Attempt 1 was product feedback, which never raised
+                # pricing, so Determining Interest would reference a
+                # conversation that never happened. Fall back to the real,
+                # content-agnostic Last-Ditch Effort script instead of
+                # repeating attempt 1 verbatim.
                 template = LAST_DITCH_EFFORT_TEMPLATE
         else:
             template = attempt_1_template

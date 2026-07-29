@@ -46,20 +46,23 @@ class TestSuggestEmailTemplate:
         result = suggest_email_template(row("stalled", subscribed=False, attended=False, examples=[]))
         assert result["id"] == "slow_track_product_feedback"
 
-    def test_stalled_subscribed_and_attended_gets_trial_offer(self):
-        # Proven engagement that still went dark is a stronger card to
-        # play than another generic re-approach -- takes priority over the
-        # precedent check entirely, regardless of what's in the revival
-        # library.
+    def test_stalled_subscribed_and_attended_gets_webinar_reinvite_not_trial_offer(self):
+        # Proven engagement that still went dark gets a forward-looking
+        # re-invite, NOT the trial-offer script -- that script's real
+        # wording ("thank you for subscribing... since you signed up")
+        # asserts the subscribe was recent, which the underlying signal
+        # (a lifetime yes/no flag, no date attached) can't actually back
+        # up. Takes priority over the precedent check entirely, regardless
+        # of what's in the revival library.
         result = suggest_email_template(row("stalled", subscribed=True, attended=True, examples=[]))
-        assert result["id"] == "trial_offer"
+        assert result["id"] == "webinar_invite"
 
     def test_stalled_with_no_attempt_count_recorded_behaves_as_attempt_one(self):
         # Backward compatible: when suggestion_history isn't wired up (no
         # --suggestion-history passed), every stalled suggestion is still
         # a first attempt, same as before escalation existed.
         result = suggest_email_template(row("stalled", subscribed=True, attended=True, stalled_attempt_count=None))
-        assert result["id"] == "trial_offer"
+        assert result["id"] == "webinar_invite"
 
     def test_stalled_second_attempt_after_reapproach_gets_determining_interest(self):
         # A second consecutive stalled suggestion, where attempt 1 would
@@ -70,15 +73,15 @@ class TestSuggestEmailTemplate:
         )
         assert result["id"] == "determining_interest"
 
-    def test_stalled_second_attempt_after_trial_offer_gets_last_ditch_effort(self):
-        # Attempt 1 would have been the trial offer (never mentions
-        # pricing) -- Determining Interest would be inaccurate here, so
-        # this escalates to the real, content-agnostic Last-Ditch Effort
-        # script instead.
+    def test_stalled_second_attempt_after_webinar_reinvite_gets_trial_offer(self):
+        # The gentle re-invite didn't land -- escalate to the stronger,
+        # proven-engagement incentive script (real, and reserved for
+        # exactly this point in the real library: a late-stage lever, not
+        # a first move).
         result = suggest_email_template(
             row("stalled", subscribed=True, attended=True, examples=[{"account": "Geron"}], stalled_attempt_count=2)
         )
-        assert result["id"] == "last_ditch_effort"
+        assert result["id"] == "trial_offer"
 
     def test_stalled_second_attempt_after_product_feedback_gets_last_ditch_effort(self):
         result = suggest_email_template(
