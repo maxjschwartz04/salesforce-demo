@@ -145,14 +145,27 @@ class TestFormatTrackerReportNextStep:
         row = self._row("stalled", {"mode": "blended", "text": "reach out"})
         row["suggested_email"] = {
             "id": "slow_track_reapproach",
+            "vertical": "food",
             "source": "AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1",
             "subject": "AgencyIQ Updates – time to connect?",
             "body": "Jane,\n\nIt's been a while.",
         }
         report = format_tracker_report([row])
-        assert "Suggested email (AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1):" in report
+        assert "Suggested email (Food — AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1):" in report
         assert "Subject: AgencyIQ Updates – time to connect?" in report
         assert "It's been a while." in report
+
+    def test_suggested_email_labels_life_sciences_vertical(self):
+        row = self._row("stalled", {"mode": "blended", "text": "reach out"})
+        row["suggested_email"] = {
+            "id": "slow_track_reapproach",
+            "vertical": "life_sciences",
+            "source": "AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1",
+            "subject": "AgencyIQ Updates – time to connect?",
+            "body": "Jane,\n\nIt's been a while.",
+        }
+        report = format_tracker_report([row])
+        assert "Suggested email (Life Sciences — AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #1):" in report
 
     def test_no_suggested_email_prints_nothing_extra(self):
         row = self._row("on_pace", {"mode": "none", "text": None})

@@ -22,7 +22,7 @@ import sys
 
 from activity_feed import build_activity_feed
 from campaign_parser import get_recent_engagements, has_attended_webinar, has_subscribed_to_newsletter, top_contacts
-from email_templates import suggest_email_template
+from email_templates import TEMPLATE_LIBRARIES, suggest_email_template
 from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from playbook import next_step_display
@@ -144,9 +144,12 @@ def run_tracker(
     campaign_by_company=None,
     suggestion_history=None,
 ):
-    """account_exports: iterable of (account_name, mhtml_path) for LIVE
-    accounts (not closed-won — this is the thing being tracked, not the
-    reference library). account_status: optional {account_name: {...}} from
+    """account_exports: iterable of (account_name, mhtml_path) or
+    (account_name, mhtml_path, vertical) for LIVE accounts (not closed-won
+    — this is the thing being tracked, not the reference library).
+    vertical is "food" or "life_sciences" (see email_templates.py) —
+    omitting it (2-tuple form) defaults to "food", same as before verticals
+    existed. account_status: optional {account_name: {...}} from
     opportunity_parser.build_account_status — used to catch "stalled by pure
     gap math, but actually already closed" false positives, AND to skip
     existing customers entirely (see opportunity_parser.is_prospect — this
@@ -174,7 +177,12 @@ def run_tracker(
     account_status = account_status or {}
     campaign_by_company = campaign_by_company or {}
     rows = []
-    for account_name, path in account_exports:
+    for entry in account_exports:
+        if len(entry) == 3:
+            account_name, path, vertical = entry
+        else:
+            account_name, path = entry
+            vertical = "food"
         if not is_prospect(account_name, account_status):
             continue  # existing customer -- Account Management's account, not new-business pipeline
         html = extract_html_from_mhtml(path)
@@ -208,6 +216,7 @@ def run_tracker(
             "attended_webinar": has_attended_webinar(account_name, campaign_by_company),
             "subscribed_to_newsletter": has_subscribed_to_newsletter(account_name, campaign_by_company),
             "activity_feed": build_activity_feed(records),
+            "vertical": vertical,
         }
         if suggestion_history is not None:
             row["stalled_attempt_count"] = record_attempt(suggestion_history, account_name, actionable_status)
@@ -270,7 +279,8 @@ def format_tracker_report(rows):
         if suggested_email:
             attempt_count = row.get("stalled_attempt_count")
             attempt_note = f", attempt {attempt_count}" if attempt_count and attempt_count > 1 else ""
-            lines.append(f"  Suggested email ({suggested_email['source']}{attempt_note}):")
+            vertical_label = "Life Sciences" if suggested_email.get("vertical") == "life_sciences" else "Food"
+            lines.append(f"  Suggested email ({vertical_label} — {suggested_email['source']}{attempt_note}):")
             lines.append(f"    Subject: {suggested_email['subject']}")
             for body_line in suggested_email["body"].splitlines():
                 lines.append(f"    {body_line}")
@@ -322,7 +332,14 @@ def format_winback_section(candidates, top_n=15, campaign_by_company=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("accounts", nargs="+", metavar="NAME=PATH", help="Live accounts to check, as NAME=path/to/export.mhtml")
+    parser.add_argument(
+        "accounts",
+        nargs="+",
+        metavar="NAME[:VERTICAL]=PATH",
+        help="Live accounts to check, as NAME=path/to/export.mhtml. Optionally tag the account's vertical "
+        "(see email_templates.py) as NAME:VERTICAL=path/to/export.mhtml, e.g. 'Kura:life_sciences=kura.mhtml' "
+        "-- omit for the default, 'food'. Valid verticals: food, life_sciences",
+    )
     parser.add_argument("--library", required=True, help="Path to a revival library JSON file (from revival_library.py)")
     parser.add_argument("--narrative-doc", help="Optional path to the closed-won master .docx, for curator notes")
     parser.add_argument(
@@ -382,9 +399,15 @@ def main():
     account_exports = []
     for spec in args.accounts:
         if "=" not in spec:
-            parser.error(f"expected NAME=PATH, got: {spec}")
-        name, path = spec.split("=", 1)
-        account_exports.append((name, path))
+            parser.error(f"expected NAME=PATH or NAME:VERTICAL=PATH, got: {spec}")
+        name_part, path = spec.split("=", 1)
+        if ":" in name_part:
+            name, vertical = name_part.split(":", 1)
+        else:
+            name, vertical = name_part, "food"
+        if vertical not in TEMPLATE_LIBRARIES:
+            parser.error(f"unknown vertical {vertical!r} for {name!r} -- valid verticals: {', '.join(TEMPLATE_LIBRARIES)}")
+        account_exports.append((name, path, vertical))
 
     suggestion_history = None
     if args.suggestion_history:

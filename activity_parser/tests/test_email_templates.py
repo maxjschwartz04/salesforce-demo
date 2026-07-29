@@ -1,7 +1,16 @@
 from email_templates import suggest_email_template
 
 
-def row(status, subscribed=True, attended=True, contacts=None, account="Acme Corp", examples=None, stalled_attempt_count=None):
+def row(
+    status,
+    subscribed=True,
+    attended=True,
+    contacts=None,
+    account="Acme Corp",
+    examples=None,
+    stalled_attempt_count=None,
+    vertical=None,
+):
     return {
         "actionable_status": status,
         "account": account,
@@ -10,6 +19,7 @@ def row(status, subscribed=True, attended=True, contacts=None, account="Acme Cor
         "attended_webinar": attended,
         "examples": examples if examples is not None else [{"account": "Geron Corporation"}],
         "stalled_attempt_count": stalled_attempt_count,
+        "vertical": vertical,
     }
 
 
@@ -51,14 +61,30 @@ class TestSuggestEmailTemplate:
         result = suggest_email_template(row("stalled", subscribed=True, attended=True, stalled_attempt_count=None))
         assert result["id"] == "trial_offer"
 
-    def test_stalled_second_attempt_gets_determining_interest(self):
-        # A second consecutive stalled suggestion escalates regardless of
-        # subscribed/attended/precedent -- those only decide the FIRST
-        # attempt.
+    def test_stalled_second_attempt_after_reapproach_gets_determining_interest(self):
+        # A second consecutive stalled suggestion, where attempt 1 would
+        # have been the pricing-themed reapproach script, escalates to its
+        # real documented sequel.
+        result = suggest_email_template(
+            row("stalled", subscribed=False, attended=False, examples=[{"account": "Geron"}], stalled_attempt_count=2)
+        )
+        assert result["id"] == "determining_interest"
+
+    def test_stalled_second_attempt_after_trial_offer_gets_last_ditch_effort(self):
+        # Attempt 1 would have been the trial offer (never mentions
+        # pricing) -- Determining Interest would be inaccurate here, so
+        # this escalates to the real, content-agnostic Last-Ditch Effort
+        # script instead.
         result = suggest_email_template(
             row("stalled", subscribed=True, attended=True, examples=[{"account": "Geron"}], stalled_attempt_count=2)
         )
-        assert result["id"] == "determining_interest"
+        assert result["id"] == "last_ditch_effort"
+
+    def test_stalled_second_attempt_after_product_feedback_gets_last_ditch_effort(self):
+        result = suggest_email_template(
+            row("stalled", subscribed=False, attended=False, examples=[], stalled_attempt_count=2)
+        )
+        assert result["id"] == "last_ditch_effort"
 
     def test_stalled_third_attempt_gets_breakup(self):
         result = suggest_email_template(row("stalled", stalled_attempt_count=3))
@@ -67,6 +93,37 @@ class TestSuggestEmailTemplate:
     def test_stalled_attempt_beyond_three_still_gets_breakup(self):
         result = suggest_email_template(row("stalled", stalled_attempt_count=7))
         assert result["id"] == "breakup"
+
+    def test_no_vertical_defaults_to_food(self):
+        result = suggest_email_template(row("never_engaged", subscribed=False, vertical=None))
+        assert result["vertical"] == "food"
+        assert "food" in result["body"].lower()
+
+    def test_life_sciences_vertical_uses_life_sciences_content(self):
+        result = suggest_email_template(row("never_engaged", subscribed=False, vertical="life_sciences"))
+        assert result["vertical"] == "life_sciences"
+        assert "food" not in result["body"].lower()
+
+    def test_unknown_vertical_falls_back_to_food(self):
+        result = suggest_email_template(row("never_engaged", subscribed=False, vertical="chemicals"))
+        assert result["vertical"] == "chemicals"  # echoed as-is, but content came from the food fallback
+        assert "food" in result["body"].lower()
+
+    def test_life_sciences_stalled_escalation_stays_within_vertical(self):
+        # Attempt 2 after a life-sciences reapproach should pull the
+        # life-sciences Determining Interest script, not the Food one.
+        result = suggest_email_template(
+            row(
+                "stalled",
+                subscribed=False,
+                attended=False,
+                examples=[{"account": "Geron"}],
+                stalled_attempt_count=2,
+                vertical="life_sciences",
+            )
+        )
+        assert result["id"] == "determining_interest"
+        assert "food" not in result["body"].lower()
 
     def test_never_engaged_not_subscribed_gets_newsletter_invite(self):
         result = suggest_email_template(row("never_engaged", subscribed=False, attended=False))
