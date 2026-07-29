@@ -99,13 +99,13 @@ def match_plays(row):
 # itself (that's what made earlier drafts read like a footnote explaining
 # where the suggestion came from rather than just making the suggestion).
 #
-# Deliberately doesn't cite the precedent's response time here anymore --
-# that comparison already lives in its own dedicated place (the "Closest
-# Revival Precedent" block / format_suggestions_summary's examples list),
-# so repeating "in one comparable case, that got a reply in 6 days" here
-# was just saying the same thing twice in two different spots on the same
-# screen. This is the ACTION, full stop; the evidence for it is shown
-# separately, once.
+# Deliberately doesn't cite the precedent's response time here -- that
+# match already silently decides which stalled-track email gets suggested
+# (see email_templates.suggest_email_template's row["examples"] check:
+# reapproach-with-precedent vs. product-feedback-without-precedent), so
+# repeating "in one comparable case, that got a reply in 6 days" here
+# would be saying the same underlying signal twice. This is the ACTION,
+# full stop; the precedent already shaped which action that is.
 NEXT_STEP_TEMPLATES = {
     "next_step_only": "{next_step}",
     "precedent_only": "Reach out directly.",

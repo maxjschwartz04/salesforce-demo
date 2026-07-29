@@ -31,8 +31,9 @@ from email_templates import TEMPLATE_LIBRARIES, suggest_email_template
 from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from playbook import next_step_display
+from staleness import format_staleness_summary
 from suggestion_history import record_suggestion, resolve_attempt_count
-from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, suggest_reengagement_examples
+from suggestions import RAW_EXPORT_NAME_ALIASES, suggest_reengagement_examples
 
 # How far back from an account's most recent activity to look when checking
 # whether a real rep (vs. a nurture/marketing sender) has been in touch.
@@ -276,7 +277,7 @@ def format_tracker_report(rows):
             lines.append("")
             continue
 
-        lines.append(format_suggestions_summary(row["result"], row["account"]))
+        lines.append(format_staleness_summary(row["result"]["staleness"], row["account"]))
         if row["result"]["staleness"]["status"] in (
             "stalled",
             "never_engaged",
