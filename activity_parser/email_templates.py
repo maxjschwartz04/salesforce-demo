@@ -189,6 +189,61 @@ SLOW_TRACK_PRODUCT_FEEDBACK_TEMPLATE = {
     ),
 }
 
+# Real script -- see AIQ_Outreach_Templates_1.pdf, Slow Track Re-Approach
+# Script #2 ("Determining Interest") -- explicitly documented as "to be
+# sent in follow-up to Re-approach Script #1." Lightly trimmed (dropped a
+# claim about "FDA stakeholder bios" specific to the LS version, no food
+# equivalent confirmed). Used for the SECOND consecutive stalled
+# suggestion for the same account (see suggestion_history.py), regardless
+# of which attempt-1 template actually fired -- the real library only
+# documents a sequel for the pricing/terms line specifically, so this is
+# a deliberate simplification, not a perfect content match to Script #3
+# or the trial offer.
+DETERMINING_INTEREST_TEMPLATE = {
+    "id": "determining_interest",
+    "source": "AIQ_Outreach_Templates_1.pdf — Slow Track Re-Approach Script #2 (Determining Interest)",
+    "subject": "Following up – still interested in reconnecting?",
+    "body": (
+        "{first_name} —\n\n"
+        "I wanted to follow up here and make sure we're able to find time to connect if you're still interested "
+        "in taking advantage of our updated terms and pricing. I know how valuable {account} found AgencyIQ's "
+        "daily push content and in-depth food regulatory analysis.\n\n"
+        "Is a call to discuss updated pricing of interest?\n\n"
+        "Thanks,\n[Your Name]"
+    ),
+}
+
+# Real script -- see MASTER_KEY_BD_Scripts.pdf, standalone "Breakup email"
+# (already vertical-neutral in the source -- no LS/Food-specific wording
+# to adapt). BDS_Best_Practices.pdf notes real policy reserves this for
+# lower-tier contacts and keeps top-tier contacts in slow track instead --
+# "tier" isn't in any export this pipeline parses (it's a by-hand 3x3
+# judgment call), so this applies uniformly after enough unresolved
+# attempts rather than trying to guess tier. Used from the THIRD
+# consecutive stalled suggestion onward.
+BREAKUP_TEMPLATE = {
+    "id": "breakup",
+    "source": "MASTER_KEY_BD_Scripts.pdf — Breakup Email",
+    "subject": "Let's connect",
+    "body": (
+        "Hi {first_name},\n\n"
+        "I hope you are having a great week. Over the past couple of months, I've shared several of our food "
+        "regulatory analyses with you and I hope you found them helpful. To ensure you continue receiving "
+        "valuable insights, I'd love to discuss how our platform can support {account}'s needs more "
+        "effectively.\n\n"
+        "I would like to offer your team a complimentary trial of our services. It will provide you with full "
+        "access to our in-depth food regulatory analyses and updates, allowing you to discover the full range "
+        "of our content for yourself. Could we schedule a brief meeting to explore this further? Please let me "
+        "know a convenient time, and I'll arrange the details.\n\n"
+        "Looking forward to connecting soon.\n\n"
+        "Best,\n[Your Name]"
+    ),
+}
+
+# Consecutive stalled suggestions at or above this count get the breakup
+# email instead of another re-approach/determining-interest cycle.
+BREAKUP_ATTEMPT_THRESHOLD = 3
+
 
 def _fill(template, first_name, account):
     return {
@@ -203,10 +258,15 @@ def suggest_email_template(row):
     """row: a tracker.py row dict -- needs 'actionable_status', 'account',
     'contacts' (from campaign_parser.top_contacts), 'attended_webinar' /
     'subscribed_to_newsletter' (from campaign_parser.has_attended_webinar
-    / has_subscribed_to_newsletter), and 'examples' (from
+    / has_subscribed_to_newsletter), 'examples' (from
     suggestions.suggest_reengagement_examples / revival_library.py --
     closed-won accounts whose own silence-then-revival pattern resembles
-    this one) -- all precomputed once in run_tracker.
+    this one), and 'stalled_attempt_count' (from suggestion_history.py,
+    via run_tracker's optional --suggestion-history -- how many
+    consecutive runs in a row this account has come back "stalled" with no
+    resolution in between; absent/0/1 all mean "first attempt," so this
+    stays backward compatible when history tracking isn't wired up) --
+    all precomputed once in run_tracker.
 
     Returns None for "new"/"on_pace"/anything else -- there's nothing to
     suggest sending. Otherwise returns {id, source, subject, body} with
@@ -225,10 +285,21 @@ def suggest_email_template(row):
     attended = row.get("attended_webinar")
 
     if status == "stalled":
-        if subscribed and attended:
-            # Proven engagement that still went dark -- the real scripts'
-            # own trial-offer trigger, and a stronger card to play than
-            # another generic re-approach.
+        attempt_count = row.get("stalled_attempt_count") or 1
+        if attempt_count >= BREAKUP_ATTEMPT_THRESHOLD:
+            # Enough unresolved cycles that continuing to re-approach
+            # isn't working -- time for the real breakup script rather
+            # than a fourth variation on "let's reconnect."
+            template = BREAKUP_TEMPLATE
+        elif attempt_count == 2:
+            # One prior stalled suggestion already went unresolved --
+            # this is its documented real sequel, not another first
+            # attempt.
+            template = DETERMINING_INTEREST_TEMPLATE
+        elif subscribed and attended:
+            # First attempt, proven engagement that still went dark --
+            # the real scripts' own trial-offer trigger, and a stronger
+            # card to play than a generic re-approach.
             template = TRIAL_OFFER_TEMPLATE
         elif row.get("examples"):
             # Only lean on "we've revived accounts like yours" when the

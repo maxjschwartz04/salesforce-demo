@@ -26,6 +26,7 @@ from email_templates import suggest_email_template
 from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from playbook import next_step_display
+from suggestion_history import record_attempt
 from suggestions import RAW_EXPORT_NAME_ALIASES, format_suggestions_summary, suggest_reengagement_examples
 
 # How far back from an account's most recent activity to look when checking
@@ -141,6 +142,7 @@ def run_tracker(
     nurture_senders=None,
     account_status=None,
     campaign_by_company=None,
+    suggestion_history=None,
 ):
     """account_exports: iterable of (account_name, mhtml_path) for LIVE
     accounts (not closed-won — this is the thing being tracked, not the
@@ -153,18 +155,22 @@ def run_tracker(
     [engagement, ...]} from campaign_parser.group_by_company — surfaced as
     recent marketing-engagement facts (get_recent_engagements) and the
     account's top real contacts (top_contacts), exact-match only in both
-    cases (see campaign_parser.get_recent_engagements for why). Returns a
-    list of row dicts, sorted most-urgent-and-actionable-first; accounts
-    confirmed already closed sort last regardless of how stale their
-    activity looks.
+    cases (see campaign_parser.get_recent_engagements for why).
+    suggestion_history: optional dict from suggestion_history.load_history
+    — mutated in place with each account's current status/attempt count so
+    the caller can persist it (see --suggestion-history); when omitted,
+    every stalled suggestion is treated as a first attempt, same as before
+    this existed. Returns a list of row dicts, sorted most-urgent-and-
+    actionable-first; accounts confirmed already closed sort last
+    regardless of how stale their activity looks.
 
     Each row also carries "staleness" and "examples" as top-level aliases
     of result["staleness"]/result["examples"] (same dicts, not copies), a
     precomputed "next_step_display" (from playbook.next_step_display), and
     a precomputed "suggested_email" (from email_templates.suggest_email_
     template, using "attended_webinar"/"subscribed_to_newsletter" from
-    campaign_parser) -- all computed once here rather than re-derived by
-    every caller."""
+    campaign_parser and "stalled_attempt_count" from suggestion_history)
+    -- all computed once here rather than re-derived by every caller."""
     account_status = account_status or {}
     campaign_by_company = campaign_by_company or {}
     rows = []
@@ -203,6 +209,8 @@ def run_tracker(
             "subscribed_to_newsletter": has_subscribed_to_newsletter(account_name, campaign_by_company),
             "activity_feed": build_activity_feed(records),
         }
+        if suggestion_history is not None:
+            row["stalled_attempt_count"] = record_attempt(suggestion_history, account_name, actionable_status)
         row["next_step_display"] = next_step_display(row)
         row["suggested_email"] = suggest_email_template(row)
         rows.append(row)
@@ -260,7 +268,9 @@ def format_tracker_report(rows):
 
         suggested_email = row.get("suggested_email")
         if suggested_email:
-            lines.append(f"  Suggested email ({suggested_email['source']}):")
+            attempt_count = row.get("stalled_attempt_count")
+            attempt_note = f", attempt {attempt_count}" if attempt_count and attempt_count > 1 else ""
+            lines.append(f"  Suggested email ({suggested_email['source']}{attempt_note}):")
             lines.append(f"    Subject: {suggested_email['subject']}")
             for body_line in suggested_email["body"].splitlines():
                 lines.append(f"    {body_line}")
@@ -332,6 +342,12 @@ def main():
         help="Names known to be non-rep senders (newsletter/webinar/research roles), not inferred automatically",
     )
     parser.add_argument("--top-n", type=int, default=3)
+    parser.add_argument(
+        "--suggestion-history",
+        help="Optional path to a JSON file tracking suggested-email attempts across runs (see suggestion_history.py) "
+        "-- lets a repeatedly-stalled account escalate past the first re-approach instead of repeating it. Created "
+        "on first use and updated after each run.",
+    )
     parser.add_argument("-o", "--output", help="Write JSON to this file instead of printing the text report")
     args = parser.parse_args()
 
@@ -370,6 +386,12 @@ def main():
         name, path = spec.split("=", 1)
         account_exports.append((name, path))
 
+    suggestion_history = None
+    if args.suggestion_history:
+        from suggestion_history import load_history, save_history
+
+        suggestion_history = load_history(args.suggestion_history)
+
     rows = run_tracker(
         account_exports,
         revival_library,
@@ -378,7 +400,11 @@ def main():
         nurture_senders=args.nurture_senders,
         account_status=account_status,
         campaign_by_company=campaign_by_company,
+        suggestion_history=suggestion_history,
     )
+
+    if args.suggestion_history:
+        save_history(args.suggestion_history, suggestion_history)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

@@ -1,7 +1,7 @@
 from email_templates import suggest_email_template
 
 
-def row(status, subscribed=True, attended=True, contacts=None, account="Acme Corp", examples=None):
+def row(status, subscribed=True, attended=True, contacts=None, account="Acme Corp", examples=None, stalled_attempt_count=None):
     return {
         "actionable_status": status,
         "account": account,
@@ -9,6 +9,7 @@ def row(status, subscribed=True, attended=True, contacts=None, account="Acme Cor
         "subscribed_to_newsletter": subscribed,
         "attended_webinar": attended,
         "examples": examples if examples is not None else [{"account": "Geron Corporation"}],
+        "stalled_attempt_count": stalled_attempt_count,
     }
 
 
@@ -42,6 +43,30 @@ class TestSuggestEmailTemplate:
         # library.
         result = suggest_email_template(row("stalled", subscribed=True, attended=True, examples=[]))
         assert result["id"] == "trial_offer"
+
+    def test_stalled_with_no_attempt_count_recorded_behaves_as_attempt_one(self):
+        # Backward compatible: when suggestion_history isn't wired up (no
+        # --suggestion-history passed), every stalled suggestion is still
+        # a first attempt, same as before escalation existed.
+        result = suggest_email_template(row("stalled", subscribed=True, attended=True, stalled_attempt_count=None))
+        assert result["id"] == "trial_offer"
+
+    def test_stalled_second_attempt_gets_determining_interest(self):
+        # A second consecutive stalled suggestion escalates regardless of
+        # subscribed/attended/precedent -- those only decide the FIRST
+        # attempt.
+        result = suggest_email_template(
+            row("stalled", subscribed=True, attended=True, examples=[{"account": "Geron"}], stalled_attempt_count=2)
+        )
+        assert result["id"] == "determining_interest"
+
+    def test_stalled_third_attempt_gets_breakup(self):
+        result = suggest_email_template(row("stalled", stalled_attempt_count=3))
+        assert result["id"] == "breakup"
+
+    def test_stalled_attempt_beyond_three_still_gets_breakup(self):
+        result = suggest_email_template(row("stalled", stalled_attempt_count=7))
+        assert result["id"] == "breakup"
 
     def test_never_engaged_not_subscribed_gets_newsletter_invite(self):
         result = suggest_email_template(row("never_engaged", subscribed=False, attended=False))
