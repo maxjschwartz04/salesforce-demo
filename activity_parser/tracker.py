@@ -27,7 +27,7 @@ import sys
 
 from activity_feed import build_activity_feed
 from campaign_parser import get_recent_engagements, has_attended_webinar, has_subscribed_to_newsletter, top_contacts
-from email_templates import TEMPLATE_LIBRARIES, suggest_email_template
+from email_templates import VALID_VERTICALS, suggest_email_template
 from opportunity_parser import find_account_status, is_prospect
 from parser import extract_html_from_mhtml, filter_and_sort_activities, parse_activities, parse_last_modified_date
 from playbook import next_step_display
@@ -153,9 +153,12 @@ def run_tracker(
     """account_exports: iterable of (account_name, mhtml_path) or
     (account_name, mhtml_path, vertical) for LIVE accounts (not closed-won
     — this is the thing being tracked, not the reference library).
-    vertical is "food" or "life_sciences" (see email_templates.py) —
-    omitting it (2-tuple form) defaults to "food", same as before verticals
-    existed. account_status: optional {account_name: {...}} from
+    vertical is "food", "life_sciences", or "unknown" (see
+    email_templates.py's UNKNOWN_VERTICAL — suppresses suggest_email_
+    template's output rather than guessing "food" for an account that
+    isn't clearly either, e.g. a law firm or consultancy) — omitting it
+    (2-tuple form) defaults to "food", same as before verticals existed.
+    account_status: optional {account_name: {...}} from
     opportunity_parser.build_account_status — used to catch "stalled by pure
     gap math, but actually already closed" false positives, AND to skip
     existing customers entirely (see opportunity_parser.is_prospect — this
@@ -306,6 +309,11 @@ def format_tracker_report(rows):
             lines.append(f"    Subject: {suggested_email['subject']}")
             for body_line in suggested_email["body"].splitlines():
                 lines.append(f"    {body_line}")
+        elif row.get("vertical") == "unknown" and row["actionable_status"] in ("never_engaged", "cooling_off", "stalled"):
+            # Otherwise-actionable, but suppressed on purpose (see
+            # email_templates.UNKNOWN_VERTICAL) -- say so, so this doesn't
+            # read as a silent gap in coverage.
+            lines.append("  No suggested email -- vertical not determined for this account (tagged \"unknown\").")
 
         lines.extend(_format_engagement_lines(row["recent_engagements"]))
 
@@ -361,14 +369,15 @@ def main():
         help="Live accounts to check, as NAME=path/to/export.mhtml. Optionally tag the account's vertical "
         "(see email_templates.py) as NAME:VERTICAL=path/to/export.mhtml, e.g. 'Kura:life_sciences=kura.mhtml' "
         "-- omit to fall back to --account-verticals, or 'food' if that's also not set. Valid verticals: "
-        "food, life_sciences",
+        "food, life_sciences, unknown (tag 'unknown' for an account that isn't clearly either -- a law firm, "
+        "consultancy, etc. -- to suppress its suggested email rather than guessing food)",
     )
     parser.add_argument(
         "--account-verticals",
-        help="Optional path to a JSON file mapping account name to vertical (\"food\" or \"life_sciences\"), e.g. "
-        '{"Kura Oncology Inc": "life_sciences"} -- set an account\'s vertical here once instead of retyping '
-        "NAME:VERTICAL= on every run. An inline :VERTICAL tag in the account spec above still overrides this "
-        "per invocation.",
+        help="Optional path to a JSON file mapping account name to vertical (\"food\", \"life_sciences\", or "
+        '"unknown"), e.g. {"Kura Oncology Inc": "life_sciences"} -- set an account\'s vertical here once instead '
+        "of retyping NAME:VERTICAL= on every run. An inline :VERTICAL tag in the account spec above still "
+        "overrides this per invocation.",
     )
     parser.add_argument("--library", required=True, help="Path to a revival library JSON file (from revival_library.py)")
     parser.add_argument("--narrative-doc", help="Optional path to the closed-won master .docx, for curator notes")
@@ -431,10 +440,10 @@ def main():
         with open(args.account_verticals, encoding="utf-8") as f:
             account_verticals = json.load(f)
         for name, vertical in account_verticals.items():
-            if vertical not in TEMPLATE_LIBRARIES:
+            if vertical not in VALID_VERTICALS:
                 parser.error(
                     f"unknown vertical {vertical!r} for {name!r} in {args.account_verticals} -- "
-                    f"valid verticals: {', '.join(TEMPLATE_LIBRARIES)}"
+                    f"valid verticals: {', '.join(sorted(VALID_VERTICALS))}"
                 )
 
     account_exports = []
@@ -448,8 +457,8 @@ def main():
         else:
             name = name_part
             vertical = account_verticals.get(name, "food")
-        if vertical not in TEMPLATE_LIBRARIES:
-            parser.error(f"unknown vertical {vertical!r} for {name!r} -- valid verticals: {', '.join(TEMPLATE_LIBRARIES)}")
+        if vertical not in VALID_VERTICALS:
+            parser.error(f"unknown vertical {vertical!r} for {name!r} -- valid verticals: {', '.join(sorted(VALID_VERTICALS))}")
         account_exports.append((name, path, vertical))
 
     suggestion_history = None

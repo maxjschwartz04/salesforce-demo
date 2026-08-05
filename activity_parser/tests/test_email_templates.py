@@ -1,3 +1,5 @@
+import pytest
+
 from email_templates import suggest_email_template
 
 
@@ -107,10 +109,21 @@ class TestSuggestEmailTemplate:
         assert result["vertical"] == "life_sciences"
         assert "food" not in result["body"].lower()
 
-    def test_unknown_vertical_falls_back_to_food(self):
-        result = suggest_email_template(row("never_engaged", subscribed=False, vertical="chemicals"))
-        assert result["vertical"] == "chemicals"  # echoed as-is, but content came from the food fallback
-        assert "food" in result["body"].lower()
+    def test_unknown_vertical_suppresses_suggestion_regardless_of_status(self):
+        # An account genuinely not determined to be Food or Life Sciences
+        # (a law firm, consultancy, etc.) gets no suggestion at all --
+        # better than guessing Food by default. Checked across every
+        # status that would otherwise get one.
+        for status in ("never_engaged", "cooling_off", "stalled"):
+            assert suggest_email_template(row(status, vertical="unknown")) is None
+
+    def test_unrecognized_vertical_raises_instead_of_silently_guessing_food(self):
+        # A genuine typo/un-onboarded vertical is a caller bug to fix, not
+        # something to quietly paper over by guessing Food (the old
+        # behavior this replaces) -- "unknown" is the explicit way to say
+        # "not determined."
+        with pytest.raises(ValueError):
+            suggest_email_template(row("never_engaged", subscribed=False, vertical="chemicals"))
 
     def test_life_sciences_stalled_escalation_stays_within_vertical(self):
         # Attempt 2 after a life-sciences reapproach should pull the

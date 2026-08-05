@@ -10,18 +10,23 @@ not something this tool should guess at.
 
 Scope, deliberate:
 - Food and Life Sciences only, picked per account via row["vertical"]
-  ("food" or "life_sciences", default "food" for backward compatibility --
-  see tracker.py's account spec syntax). There's still no reliable
-  per-account vertical field anywhere in the Salesforce exports this
-  pipeline parses (checked: the Opportunity export has no
-  industry/vertical column, and campaign-name vertical tags only cover a
-  minority of engagement records), so this is a by-hand tag whoever runs
-  the tool supplies per account, not something auto-detected. There's
-  deliberately no separate "chemicals" vertical -- by team decision,
-  chemicals accounts route through "life_sciences" rather than getting
-  their own track (also handy since the source library only has real
-  Chemicals content for the newsletter and webinar invites, nothing for
-  the "stalled" escalation ladder).
+  ("food", "life_sciences", or "unknown" -- see UNKNOWN_VERTICAL; default
+  "food" if the field's absent entirely, for backward compatibility with
+  usage that predates verticals -- see tracker.py's account spec syntax).
+  There's still no reliable per-account vertical field anywhere in the
+  Salesforce exports this pipeline parses (checked: the Opportunity
+  export has no industry/vertical column, and campaign-name vertical tags
+  only cover a minority of engagement records), so this is a by-hand tag
+  whoever runs the tool supplies per account, not something auto-detected.
+  Plenty of real accounts aren't clearly either one -- law firms,
+  consultancies, PR firms, government bodies, retailers -- and guessing
+  Food for those (which is what silently happened before "unknown"
+  existed as an explicit value) risks a confidently-wrong suggestion; see
+  UNKNOWN_VERTICAL. There's deliberately no separate "chemicals" vertical
+  -- by team decision, chemicals accounts route through "life_sciences"
+  rather than getting their own track (also handy since the source
+  library only has real Chemicals content for the newsletter and webinar
+  invites, nothing for the "stalled" escalation ladder).
 - Only "never_engaged", "cooling_off", and "stalled" get a suggestion --
   "new" and "on_pace" don't need one (see staleness.py).
 - Staleness-triggered only. Event-triggered situations from the same
@@ -441,6 +446,25 @@ TEMPLATE_LIBRARIES = {
     "life_sciences": LIFE_SCIENCES_TEMPLATES,
 }
 
+# A real, explicit third value for row["vertical"] -- distinct from just
+# omitting the field. Omitting it means "whoever curated this account list
+# didn't specify a vertical," which still defaults to "food" (the tool's
+# original scope, before Life Sciences existed -- preserved for backward
+# compatibility with existing usage). "unknown" means something different:
+# someone actually looked at this account and couldn't tell which vertical
+# it is -- e.g. a law firm, consultancy, PR firm, government body, or
+# retailer, none of which have an inherent food/life-sciences identity the
+# way an operating company does. There's no real script in the source
+# library written for an audience that's neither, so rather than guess
+# Food by default (which is what silently happened here before this was
+# added), suggest_email_template returns None -- no suggestion is better
+# than a plausible-looking one aimed at the wrong audience.
+UNKNOWN_VERTICAL = "unknown"
+
+# What tracker.py's CLI accepts as a vertical tag -- TEMPLATE_LIBRARIES'
+# keys (which actually have content) plus the suppress-only sentinel.
+VALID_VERTICALS = frozenset(TEMPLATE_LIBRARIES) | {UNKNOWN_VERTICAL}
+
 
 def _fill(template, first_name, account, vertical):
     return {
@@ -464,11 +488,15 @@ def suggest_email_template(row):
     runs in a row this account has come back "stalled" with no resolution
     in between; absent/0/1 all mean "first attempt," so this stays
     backward compatible when history tracking isn't wired up), and
-    'vertical' ("food" or "life_sciences" -- defaults to "food" if absent,
-    also backward compatible) -- all precomputed once in run_tracker.
+    'vertical' ("food", "life_sciences", or "unknown" -- defaults to
+    "food" if absent, same backward-compatible default as before "unknown"
+    existed) -- all precomputed once in run_tracker.
 
     Returns None for "new"/"on_pace"/anything else -- there's nothing to
-    suggest sending. Otherwise returns {id, vertical, source, subject,
+    suggest sending -- and also for vertical == "unknown", regardless of
+    status: no real script fits an audience that isn't Food or Life
+    Sciences, so no suggestion is safer than guessing Food by default (see
+    UNKNOWN_VERTICAL). Otherwise returns {id, vertical, source, subject,
     body} with the real template's fillable blanks completed from real
     data; blanks the SOURCE script itself leaves open ([topic], [DATE &
     TIME], etc.) are left as-is for a rep to complete, same as the source
@@ -477,13 +505,28 @@ def suggest_email_template(row):
     if status not in ("never_engaged", "cooling_off", "stalled"):
         return None
 
+    vertical = row.get("vertical") or "food"
+    if vertical == UNKNOWN_VERTICAL:
+        return None
+
+    if vertical not in TEMPLATE_LIBRARIES:
+        # A genuinely unrecognized value (a typo, an un-onboarded
+        # vertical) used to silently fall back to Food -- exactly the
+        # "guess Food when we don't actually know" behavior this whole
+        # change exists to stop doing. Fail loud instead: this is a caller
+        # bug to fix (tag it "unknown" if it truly isn't Food or Life
+        # Sciences), not something to quietly paper over.
+        raise ValueError(
+            f"suggest_email_template: unrecognized vertical {vertical!r} -- expected one of "
+            f"{sorted(TEMPLATE_LIBRARIES)} or {UNKNOWN_VERTICAL!r}"
+        )
+
     contacts = row.get("contacts") or []
     first_name = contacts[0].get("first_name") or "there" if contacts else "there"
     account = row.get("account") or "your organization"
     subscribed = row.get("subscribed_to_newsletter")
     attended = row.get("attended_webinar")
-    vertical = row.get("vertical") or "food"
-    templates = TEMPLATE_LIBRARIES.get(vertical, FOOD_TEMPLATES)
+    templates = TEMPLATE_LIBRARIES[vertical]
 
     if status == "stalled":
         attempt_count = row.get("stalled_attempt_count") or 1

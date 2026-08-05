@@ -171,3 +171,18 @@ class TestFormatTrackerReportNextStep:
         row = self._row("on_pace", {"mode": "none", "text": None})
         report = format_tracker_report([row])
         assert "Suggested email" not in report
+
+    def test_unknown_vertical_explains_absent_suggestion_for_actionable_status(self):
+        row = self._row("stalled", {"mode": "blended", "text": "reach out"})
+        row["vertical"] = "unknown"
+        report = format_tracker_report([row])
+        assert 'vertical not determined for this account (tagged "unknown")' in report
+
+    def test_unknown_vertical_on_pace_prints_no_note(self):
+        # No suggestion would fire for on_pace regardless of vertical --
+        # the "vertical not determined" note is only for statuses that
+        # would otherwise get a real suggestion.
+        row = self._row("on_pace", {"mode": "none", "text": None})
+        row["vertical"] = "unknown"
+        report = format_tracker_report([row])
+        assert "vertical not determined" not in report
