@@ -16,19 +16,26 @@ DEFAULT_LIMIT = 8
 # Meeting/Email), but this export format doesn't reliably expose which —
 # the "Task" checkbox column has only ever been seen checked/unchecked,
 # never carrying an actual subtype value (see
-# salesforce_api_access_request.md, open question #2). The one type we CAN
-# tell apart reliably is a real logged email (nested To/Subject/Body), so
-# that's the only distinction drawn here rather than guessing at Call vs.
-# Meeting vs. Task from data that doesn't say.
+# salesforce_api_access_request.md, open question #2). Real logged emails
+# (nested To/Subject/Body) are reliably distinguishable, and so are
+# calls -- checked directly against real exports: every logged call's
+# subject starts with the literal prefix "Call:" (e.g. "Call: No Answer -
+# Left Voicemail"), consistently, across every account sampled.
+# Meeting/Task specifically still aren't reliably exposed, so those still
+# fall into the generic "Activity" bucket rather than guessing.
 def _activity_type(record):
     comments = record.get("comments")
-    return "Email" if comments and comments.get("email") else "Activity"
+    if comments and comments.get("email"):
+        return "Email"
+    if (record.get("subject") or "").lower().startswith("call:"):
+        return "Call"
+    return "Activity"
 
 
 def build_activity_feed(records, limit=DEFAULT_LIMIT):
     """records: a filtered activity list for ONE account. Returns the most
     recent `limit` activities as [{"date": iso_date, "subject": str,
-    "type": "Email" | "Activity"}, ...], newest first."""
+    "type": "Email" | "Call" | "Activity"}, ...], newest first."""
     dated = []
     for r in records:
         dt = parse_last_modified_date(r.get("last_modified_date"))

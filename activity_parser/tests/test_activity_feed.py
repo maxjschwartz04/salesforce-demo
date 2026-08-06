@@ -31,6 +31,20 @@ class TestBuildActivityFeed:
         feed = build_activity_feed([note_record("1/1/2026, 12:00 PM", "call notes")])
         assert feed[0]["type"] == "Activity"
 
+    def test_call_records_typed_as_call(self):
+        feed = build_activity_feed([note_record("1/1/2026, 12:00 PM", "Call: No Answer - Left Voicemail")])
+        assert feed[0]["type"] == "Call"
+
+    def test_call_prefix_match_is_case_insensitive(self):
+        feed = build_activity_feed([note_record("1/1/2026, 12:00 PM", "CALL: Follow-up")])
+        assert feed[0]["type"] == "Call"
+
+    def test_call_mentioned_mid_subject_is_not_typed_as_call(self):
+        # Only a real leading "Call:" prefix counts -- a subject that
+        # merely mentions a call partway through isn't the same signal.
+        feed = build_activity_feed([note_record("1/1/2026, 12:00 PM", "Please call back re: renewal")])
+        assert feed[0]["type"] == "Activity"
+
     def test_records_with_unparseable_dates_are_skipped(self):
         records = [{"subject": "bad", "last_modified_date": "garbage", "comments": None}]
         assert build_activity_feed(records) == []
