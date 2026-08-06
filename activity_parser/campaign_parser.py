@@ -1,0 +1,264 @@
+"""
+Parses a Salesforce Campaign Member report export (.xlsx) into per-company
+marketing engagement records — webinar RSVPs/attendance, website form
+fills, etc. Distinct from sales activity: this is top-of-funnel marketing
+engagement, not a rep's own outreach, and isn't matched into the revival
+library or used for staleness math.
+
+This export is GROUPED by week of "Member First Associated Date" — the
+date only appears on the first row of each week's group, and is blank for
+every row after it until the next group starts. That's Salesforce's report
+display convention, not missing data — parse_campaign_report() forward-
+fills the date group onto every row so each record carries its own value.
+The result is only ever a week RANGE (e.g. "7/19/2026 - 7/25/2026"), not an
+exact date — that's the finest granularity this particular export gives.
+
+Usage:
+    python campaign_parser.py campaigns.xlsx -o campaign_engagement.json
+"""
+
+import argparse
+import json
+import re
+import sys
+from datetime import datetime
+
+import openpyxl
+
+_DATE_GROUP_START_PATTERN = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})")
+
+# Confirmed against a real export (Quest Attendees - Engagement History):
+# webinar campaigns follow a consistent "...Webinar.WBN...." naming
+# convention (e.g. "AIQ.2026.07.21.Food Webinar.WBN.Unified Agenda") across
+# all 10 distinct webinar campaigns seen in that file -- high confidence.
+# This is a fallback, though: checked against a second, much larger real
+# export (Company with any campaign -- 55k rows, 5 years), the "Campaign
+# Type" column (when present) is the authoritative signal and catches a
+# real webinar campaign the name pattern alone would have missed (a
+# tradeshow-associated session), while the name pattern alone would have
+# also falsely matched 11 non-webinar campaigns (promo emails that just
+# mention "webinar" in their name) that Campaign Type correctly rules out.
+# Some real exports (Quest Attendees) don't include a Campaign Type column
+# at all, though, so the name pattern stays as the fallback for those.
+_WEBINAR_CAMPAIGN_PATTERN = re.compile(r"webinar|\.wbn\.", re.IGNORECASE)
+
+# Confirmed against the same 55k-row export: "Subscribe" (e.g. "Subscribe
+# FDA Today", "Subscribe EMA Today", "Subscribe Periodic") is a robust,
+# 5-years-consistent naming convention for newsletter-signup campaigns
+# across every channel that drives them (landing pages, email, paid
+# search, social, tradeshow QR codes) -- thousands of matching real rows,
+# no observed false positives. Originally flagged as a one-example
+# heuristic; now confirmed high-confidence the same way the webinar
+# pattern is.
+_NEWSLETTER_SIGNUP_CAMPAIGN_PATTERN = re.compile(r"subscribe", re.IGNORECASE)
+
+# Member Status values that mean the contact actually showed up, not just
+# registered -- "Filled Out Form" alone (an RSVP) doesn't count as having
+# attended.
+_ATTENDED_STATUSES = {"Attended", "Attended On-demand", "Attended On-Demand"}
+
+
+def parse_date_group_start(date_group):
+    """date_group is a week-range string like '7/19/2026 - 7/25/2026' — this
+    is the finest granularity the export gives us, so sorting/recency uses
+    the range's start date, not an exact day."""
+    if not date_group:
+        return None
+    match = _DATE_GROUP_START_PATTERN.search(date_group)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%m/%d/%Y")
+    except ValueError:
+        return None
+
+
+def _find_header(rows):
+    for i, row in enumerate(rows):
+        col = {}
+        for j, v in enumerate(row):
+            if v is None:
+                continue
+            key = str(v).strip()
+            col[key] = j
+        if "Company" in col and "Campaign Name" in col:
+            return i, col
+    raise ValueError("Could not find a header row containing 'Company' and 'Campaign Name'")
+
+
+def _find_date_group_column(col):
+    for key in col:
+        if key.startswith("Member First Associated Date"):
+            return col[key]
+    return None
+
+
+def parse_campaign_report(path):
+    """Returns a flat list of {date_group, member_type, first_name,
+    last_name, title, email, company, campaign_name, member_status,
+    campaign_type} dicts, one per campaign membership row."""
+    wb = openpyxl.load_workbook(path, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    rows = list(ws.iter_rows(values_only=True))
+
+    header_idx, col = _find_header(rows)
+    date_group_idx = _find_date_group_column(col)
+
+    def get(row, name):
+        idx = col.get(name)
+        return row[idx] if idx is not None else None
+
+    records = []
+    current_date_group = None
+    for row in rows[header_idx + 1 :]:
+        company = get(row, "Company")
+        if company is None:
+            continue  # blank row, or a footer/subtotal line
+
+        if date_group_idx is not None and row[date_group_idx]:
+            current_date_group = row[date_group_idx]
+
+        records.append(
+            {
+                "date_group": current_date_group,
+                "member_type": get(row, "Member Type"),
+                "first_name": get(row, "First Name"),
+                "last_name": get(row, "Last Name"),
+                "title": get(row, "Title"),
+                "email": get(row, "Email"),
+                "company": company,
+                "campaign_name": get(row, "Campaign Name"),
+                "member_status": get(row, "Member Status"),
+                "campaign_type": get(row, "Campaign Type"),
+            }
+        )
+
+    return records
+
+
+def group_by_company(records):
+    """Returns {company: [records]}."""
+    grouped = {}
+    for r in records:
+        grouped.setdefault(r["company"], []).append(r)
+    return grouped
+
+
+def get_recent_engagements(company, grouped, top_n=3):
+    """Most recent campaign engagements for a company, newest first. Exact
+    company-name match only — deliberately NOT fuzzy-matched like
+    opportunity_parser's find_account_status. "Company" on a Lead record is
+    self-typed by whoever filled out a form, not a real Account name, so
+    it's noisier; fuzzy-matching that against a canonical account name
+    risks pairing the wrong company rather than just missing a real one."""
+    engagements = grouped.get(company, [])
+    dated = [(e, parse_date_group_start(e["date_group"])) for e in engagements]
+    dated = [(e, d) for e, d in dated if d is not None]
+    dated.sort(key=lambda x: x[1], reverse=True)
+    return [e for e, _ in dated[:top_n]]
+
+
+def _is_webinar_campaign(engagement):
+    """Campaign Type is the authoritative signal when the export includes
+    it (see _WEBINAR_CAMPAIGN_PATTERN's comment) -- only fall back to the
+    name pattern when that column is missing from this export."""
+    campaign_type = engagement.get("campaign_type")
+    if campaign_type:
+        return campaign_type == "Webinar"
+    return bool(_WEBINAR_CAMPAIGN_PATTERN.search(engagement.get("campaign_name") or ""))
+
+
+def has_attended_webinar(company, grouped):
+    """True if anyone at this company has actually attended (live or
+    on-demand) an AgencyIQ webinar -- an RSVP/"Filled Out Form" with no
+    attendance doesn't count. Company-level, same exact-match reasoning as
+    get_recent_engagements."""
+    return any(
+        _is_webinar_campaign(e) and e.get("member_status") in _ATTENDED_STATUSES for e in grouped.get(company, [])
+    )
+
+
+def has_subscribed_to_newsletter(company, grouped):
+    """True if anyone at this company has a campaign membership matching
+    the newsletter-signup naming pattern. See
+    _NEWSLETTER_SIGNUP_CAMPAIGN_PATTERN's comment -- this is a starting
+    heuristic from one observed example, not a fully confirmed convention
+    the way has_attended_webinar's pattern is."""
+    return any(
+        _NEWSLETTER_SIGNUP_CAMPAIGN_PATTERN.search(e.get("campaign_name") or "") for e in grouped.get(company, [])
+    )
+
+
+def top_contacts(company, grouped, limit=3):
+    """The most relevant real contacts on file for a company, so a rep
+    knows who to reach out to without going back to Salesforce. The same
+    person often shows up across several campaign touches, so this dedupes
+    by email and ranks by that contact's OWN most recent engagement (same
+    recency-first reasoning as get_recent_engagements) rather than by raw
+    touch count, which would favor someone contacted often a long time ago
+    over someone who just engaged.
+
+    Exact company-name match only, same reasoning as get_recent_engagements.
+    Contacts with no email on file are skipped -- nothing to link to.
+
+    Returns [{first_name, last_name, title, email, engagement_count,
+    most_recent_date_group}, ...], most-recently-engaged first."""
+    engagements = grouped.get(company, [])
+
+    by_email = {}
+    for e in engagements:
+        email = e.get("email")
+        if not email:
+            continue
+        key = email.strip().lower()
+        entry = by_email.setdefault(
+            key,
+            {
+                "first_name": None,
+                "last_name": None,
+                "title": None,
+                "email": email,
+                "engagement_count": 0,
+                "_most_recent_dt": None,
+                "most_recent_date_group": None,
+            },
+        )
+        entry["engagement_count"] += 1
+
+        touch_dt = parse_date_group_start(e.get("date_group"))
+        if touch_dt is not None and (entry["_most_recent_dt"] is None or touch_dt > entry["_most_recent_dt"]):
+            entry["_most_recent_dt"] = touch_dt
+            entry["most_recent_date_group"] = e.get("date_group")
+            # Keep whichever name/title came with the most recent touch --
+            # a title on file from years ago may no longer be accurate.
+            entry["first_name"] = e.get("first_name")
+            entry["last_name"] = e.get("last_name")
+            entry["title"] = e.get("title")
+
+    contacts = list(by_email.values())
+    contacts.sort(key=lambda c: c["_most_recent_dt"] or datetime.min, reverse=True)
+    for c in contacts:
+        del c["_most_recent_dt"]
+    return contacts[:limit]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("report_path", help="Path to the Campaign Member report export (.xlsx)")
+    parser.add_argument("-o", "--output", help="Write JSON to this file instead of stdout")
+    args = parser.parse_args()
+
+    records = parse_campaign_report(args.report_path)
+    grouped = group_by_company(records)
+    print(f"parsed {len(records)} campaign membership rows across {len(grouped)} companies", file=sys.stderr)
+
+    output = json.dumps(grouped, indent=2, ensure_ascii=False)
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(output)
+    else:
+        print(output)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
